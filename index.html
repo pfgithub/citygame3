@@ -16,7 +16,7 @@
     letter-spacing:.04em;pointer-events:none;white-space:nowrap;backdrop-filter:blur(6px)}
   #hint{position:fixed;bottom:calc(22px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
     color:#eef0f3;font-size:14px;background:rgba(18,20,24,.62);padding:8px 16px;border-radius:999px;
-    pointer-events:none;transition:opacity .8s;white-space:nowrap}
+    pointer-events:none;transition:opacity .4s;white-space:nowrap}
   #elev{position:fixed;right:calc(16px + env(safe-area-inset-right));top:50%;transform:translateY(-50%);
     display:none;grid-template-columns:repeat(var(--cols,1),58px);gap:10px}
   #elev button{width:58px;height:58px;border-radius:50%;border:2px solid #cfd3d9;background:rgba(30,33,39,.85);
@@ -27,7 +27,7 @@
 <body>
 <canvas id="c"></canvas>
 <div id="loc"></div>
-<div id="hint">Drag anywhere to walk &nbsp;·&nbsp; WASD / arrows &nbsp;·&nbsp; Shift to sprint</div>
+<div id="hint"></div>
 <div id="elev"></div>
 <script>
 'use strict';
@@ -48,8 +48,7 @@ function segDist(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1;
 const REGIONS=[{x0:0,y0:0,x1:200,y1:160},{x0:560,y0:42,x1:680,y1:130}];
 const R=0.25;                       // player radius (shoulder width 0.5 m)
 const VIEW_OUT=34, VIEW_IN=12;      // metres visible across the short screen side
-const SPEED_IN=3.6;                 // m/s when fully zoomed in; scales with zoom
-const SPRINT=1.7;
+const SPEED_IN=3.6;                 // m/s for scripted input (tests); the mouse itself has no speed limit
 
 // ---------------------------------------------------------------- colliders
 const COL=[];
@@ -348,15 +347,27 @@ const BUILDINGS=[
 
 // ---------------------------------------------------------------- state
 const P={x:68,y:68.2,z:0,a:-Math.PI/2,lift:null,train:null,walk:0};
-let view=VIEW_OUT,indoor=0,bIn=0,time=0,pendingBtn=null,moved=false;
-const keys=new Set();let joy=null;const input={x:0,y:0,override:null};
+let view=VIEW_OUT,indoor=0,bIn=0,time=0,pendingBtn=null;
+// Mouse / finger travel since the last tick, in CSS pixels. input.override is a scripted direction for tests.
+const input={dx:0,dy:0,override:null};
+const CAM={x:P.x,y:P.y};
 
 // ---------------------------------------------------------------- simulation
+// Static colliders near where the player is about to be; collide() only tests these.
+const NEAR=[];
+function gather(x0,y0,x1,y1){
+  NEAR.length=0;
+  for(const c of COL){
+    if(c.r!==undefined){if(c.cx+c.r<x0||c.cx-c.r>x1||c.cy+c.r<y0||c.cy-c.r>y1)continue}
+    else if(c.x+c.w<x0||c.x>x1||c.y+c.h<y0||c.y>y1)continue;
+    NEAR.push(c);
+  }
+}
 function collide(){
   for(let it=0;it<4;it++){
-    const n=COL.length,m=n+DYN.length;
+    const n=NEAR.length,m=n+DYN.length;
     for(let i=0;i<m;i++){
-      const c=i<n?COL[i]:DYN[i-n];if(P.z<c.za||P.z>=c.zb)continue;
+      const c=i<n?NEAR[i]:DYN[i-n];if(P.z<c.za||P.z>=c.zb)continue;
       if(c.r!==undefined){
         const dx=P.x-c.cx,dy=P.y-c.cy,d=Math.hypot(dx,dy),m=R+c.r;
         if(d<m){if(d>1e-6){P.x+=dx/d*(m-d);P.y+=dy/d*(m-d)}else P.x+=m}
@@ -424,26 +435,29 @@ function updateIndoor(dt){
 function tick(dt){
   time+=dt;
   updateTrains(dt);buildDyn();
-  let ix=0,iy=0;
-  if(input.override){ix=input.override.x;iy=input.override.y}
-  else{
-    if(keys.has('ArrowLeft')||keys.has('KeyA'))ix-=1;if(keys.has('ArrowRight')||keys.has('KeyD'))ix+=1;
-    if(keys.has('ArrowUp')||keys.has('KeyW'))iy-=1;if(keys.has('ArrowDown')||keys.has('KeyS'))iy+=1;
-    if(joy){const dx=joy.x-joy.ox,dy=joy.y-joy.oy,d=Math.hypot(dx,dy);
-      if(d>6){const m=Math.min(1,(d-6)/(JOYR-6));ix=dx/d*m;iy=dy/d*m}}
+  // You are the mouse pointer: it moves across the world exactly as far as the
+  // mouse moved across the screen, however fast that is.
+  let wx,wy;
+  if(input.override){const sp=SPEED_IN*view/VIEW_IN*dt;wx=input.override.x*sp;wy=input.override.y*sp}
+  else{const k=DPR*view/Math.min(W,H);wx=input.dx*k;wy=input.dy*k}
+  input.dx=input.dy=0;
+  const dist=Math.hypot(wx,wy);
+  if(dist>1e-6){ // small steps so nothing is tunnelled through, whatever the speed
+    const n=Math.min(6000,Math.ceil(dist/.08));
+    gather(Math.min(P.x,P.x+wx)-1.5,Math.min(P.y,P.y+wy)-1.5,Math.max(P.x,P.x+wx)+1.5,Math.max(P.y,P.y+wy)+1.5);
+    for(let i=0;i<n;i++){
+      const bx=P.x,by=P.y;P.x+=wx/n;P.y+=wy/n;collide();updateZ();
+      if(Math.abs(P.x-bx)+Math.abs(P.y-by)<1e-5)break;   // pinned against something: the rest of the flick goes nowhere
+    }
   }
-  const mag=Math.hypot(ix,iy);if(mag>1){ix/=mag;iy/=mag}
-  const speed=SPEED_IN*view/VIEW_IN*(keys.has('ShiftLeft')||keys.has('ShiftRight')?SPRINT:1);
-  if(mag>.01){
-    if(!moved){moved=true;document.getElementById('hint').style.opacity=0}
-    const dist=speed*dt,n=Math.max(1,Math.ceil(dist/.08));
-    for(let i=0;i<n;i++){P.x+=ix*dist/n;P.y+=iy*dist/n;collide();updateZ()}
-    let da=Math.atan2(iy,ix)-P.a;da=Math.atan2(Math.sin(da),Math.cos(da));P.a+=da*Math.min(1,dt*14);
-    P.walk+=dt*Math.min(1,mag)*9;
-  }
+  gather(P.x-1.5,P.y-1.5,P.x+1.5,P.y+1.5);
   if(!P.lift)pendingBtn=null;
   for(const l of LIFTS)updateLift(l,dt);
   updateMyDoor(dt);collide();updateZ();updateIndoor(dt);
+  // the camera trails the pointer a little but never lets it stray far from the centre
+  const f=1-Math.exp(-dt*9);CAM.x+=(P.x-CAM.x)*f;CAM.y+=(P.y-CAM.y)*f;
+  const ox=P.x-CAM.x,oy=P.y-CAM.y,o=Math.hypot(ox,oy),lim=view*.16;
+  if(o>lim){CAM.x=P.x-ox/o*lim;CAM.y=P.y-oy/o*lim}
 }
 
 // ---------------------------------------------------------------- rendering
@@ -833,16 +847,14 @@ function drawPlatform(g){
   });
   drawFurn(g,F);drawWalls(g,F);
 }
-function drawPlayer(g){
-  g.save();g.translate(P.x,P.y);
-  g.strokeStyle='rgba(255,255,255,.55)';g.lineWidth=Math.max(.05,1.5*DPR/S);disc(g,0,0,Math.max(.55,7*DPR/S));g.stroke();
-  g.rotate(P.a);
-  const sw=Math.sin(P.walk)*.12;
-  g.fillStyle='#2b2f38';g.beginPath();g.ellipse(sw,-.1,.13,.07,0,0,6.2832);g.ellipse(-sw,.1,.13,.07,0,0,6.2832);g.fill();
-  g.fillStyle='#e0533d';g.beginPath();g.ellipse(0,0,.15,R,0,0,6.2832);g.fill();
-  g.fillStyle='#f0c9a0';disc(g,.02,0,.105);g.fill();
-  g.fillStyle='#4a3324';g.beginPath();g.arc(.0,0,.105,Math.PI*.55,Math.PI*1.45);g.fill();
-  g.restore();
+// The player is a mouse pointer, drawn at a fixed size on screen with its tip on the spot.
+const ARROW=[0,0, 0,17, 4,13.4, 6.9,20, 9.6,18.8, 6.7,12.4, 12,12.4];
+function drawPlayer(){
+  const k=1.25*DPR,px=P.x*S+TX,py=P.y*S+TY;
+  const path=(ox,oy)=>{ctx.beginPath();for(let i=0;i<ARROW.length;i+=2)ctx.lineTo(px+ox+ARROW[i]*k,py+oy+ARROW[i+1]*k);ctx.closePath()};
+  ctx.setTransform(1,0,0,1,0,0);
+  path(2*k,2.5*k);ctx.fillStyle='rgba(0,0,0,.28)';ctx.fill();
+  path(0,0);ctx.fillStyle='#fff';ctx.fill();ctx.lineJoin='round';ctx.lineWidth=1.5*k;ctx.strokeStyle='#111';ctx.stroke();
 }
 function drawCanopies(g,a){
   for(const t of OUT.trees){if(!vis(t.x-t.r,t.y-t.r,2*t.r,2*t.r))continue;
@@ -853,9 +865,8 @@ function drawCanopies(g,a){
     g.fillStyle='#5a4632';disc(g,t.x,t.y,.3);g.fill()}
   g.globalAlpha=1;
 }
-const JOYR=56;
 function render(){
-  S=Math.min(W,H)/view;TX=W/2-P.x*S;TY=H/2-P.y*S;
+  S=Math.min(W,H)/view;TX=W/2-CAM.x*S;TY=H/2-CAM.y*S;
   VB.x0=-TX/S;VB.y0=-TY/S;VB.x1=(W-TX)/S;VB.y1=(H-TY)/S;
   // Out-of-sight world first (dimmed; on stairs the two floors crossfade with
   // height), then what the player has line of sight to in full colour on top.
@@ -875,14 +886,7 @@ function render(){
     dimWorld(L===0?1:0);
     reveal(bufA,1,visPoly(P.x,P.y,P.z));
   }
-  ctx.setTransform(S,0,0,S,TX,TY);
-  drawPlayer(ctx);
-  // joystick
-  ctx.setTransform(DPR,0,0,DPR,0,0);
-  if(joy){let dx=joy.x-joy.ox,dy=joy.y-joy.oy;const d=Math.hypot(dx,dy);if(d>JOYR){dx*=JOYR/d;dy*=JOYR/d}
-    ctx.fillStyle='rgba(255,255,255,.14)';ctx.strokeStyle='rgba(255,255,255,.5)';ctx.lineWidth=2;
-    disc(ctx,joy.ox,joy.oy,JOYR);ctx.fill();ctx.stroke();
-    ctx.fillStyle='rgba(255,255,255,.6)';disc(ctx,joy.ox+dx,joy.oy+dy,24);ctx.fill()}
+  drawPlayer();
   updateHud();
 }
 const locEl=document.getElementById('loc'),elevEl=document.getElementById('elev');let lastLoc='',hudLift=null;
@@ -917,16 +921,26 @@ function updateHud(){
 }
 
 // ---------------------------------------------------------------- input
-addEventListener('keydown',e=>{keys.add(e.code);
+// Desktop: click to lock the pointer, then the mouse drives. Touch: drag like a trackpad.
+const hintEl=document.getElementById('hint'),TOUCH=matchMedia('(pointer:coarse)').matches;
+const locked=()=>document.pointerLockElement===cv;
+function showHint(){hintEl.textContent=TOUCH?'Drag to move the pointer':'Click to take the mouse  ·  Esc to let go  ·  in a lift: scroll or 1–0';hintEl.style.opacity=locked()?0:1}
+showHint();document.addEventListener('pointerlockchange',showHint);
+const liftStep=d=>{const l=P.lift;if(l)pendingBtn=clamp((pendingBtn??l.target??Math.round(l.z))+d,l.zmin,l.zmax)};
+addEventListener('keydown',e=>{
   if(/^Digit\d$/.test(e.code)&&P.lift)pendingBtn=(+e.code.slice(5)+9)%10;   // 1..9, and 0 for the tenth floor
-  if(e.code.startsWith('Arrow')||e.code==='Space')e.preventDefault()});
-addEventListener('keyup',e=>keys.delete(e.code));
-addEventListener('blur',()=>{keys.clear();joy=null});
-cv.addEventListener('pointerdown',e=>{if(joy)return;joy={id:e.pointerId,ox:e.clientX,oy:e.clientY,x:e.clientX,y:e.clientY};
-  try{cv.setPointerCapture(e.pointerId)}catch(_){}e.preventDefault()});
-cv.addEventListener('pointermove',e=>{if(joy&&e.pointerId===joy.id){joy.x=e.clientX;joy.y=e.clientY}});
-const endJoy=e=>{if(joy&&e.pointerId===joy.id)joy=null};
-cv.addEventListener('pointerup',endJoy);cv.addEventListener('pointercancel',endJoy);
+  if(e.code==='ArrowUp'||e.code==='ArrowDown'){liftStep(e.code==='ArrowUp'?1:-1);e.preventDefault()}});
+addEventListener('wheel',e=>{liftStep(e.deltaY<0?1:-1);e.preventDefault()},{passive:false});
+let finger=null;
+cv.addEventListener('pointerdown',e=>{
+  if(e.pointerType==='mouse'){if(!locked()){const r=cv.requestPointerLock({unadjustedMovement:true});if(r&&r.catch)r.catch(()=>cv.requestPointerLock())}}
+  else if(!finger){finger={id:e.pointerId,x:e.clientX,y:e.clientY};hintEl.style.opacity=0;try{cv.setPointerCapture(e.pointerId)}catch(_){}}
+  e.preventDefault()});
+cv.addEventListener('pointermove',e=>{
+  if(e.pointerType==='mouse'){if(locked()){input.dx+=e.movementX;input.dy+=e.movementY}}
+  else if(finger&&e.pointerId===finger.id){input.dx+=e.clientX-finger.x;input.dy+=e.clientY-finger.y;finger.x=e.clientX;finger.y=e.clientY}});
+const endFinger=e=>{if(finger&&e.pointerId===finger.id)finger=null};
+cv.addEventListener('pointerup',endFinger);cv.addEventListener('pointercancel',endFinger);
 addEventListener('contextmenu',e=>e.preventDefault());
 document.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
 elevEl.addEventListener('pointerdown',e=>{e.preventDefault();const f=e.target.dataset&&e.target.dataset.f;if(P.lift&&f!==undefined)pendingBtn=+f});
