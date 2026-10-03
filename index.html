@@ -198,6 +198,11 @@ function buildStation(st){
   for(const x of[108,152,170])ffurn(-2,dx+x,113.2,2.2,.6,'#7a6248');
 }
 STATIONS.forEach(buildStation);
+// Ticket gates: the gaps between the turnstile posts. An arm bars each one unless you hold a
+// ticket (or are already inside and on your way out).
+const GATES=[];
+for(const st of STATIONS)for(let k=0;k<8;k++)GATES.push({cx:st.dx+121,y:105.3+k*1.1,cy:105.7+k*1.1,o:0});
+const gatesOpen=()=>P.ticket||P.paid;
 // The loop, as the platform edges a train calls at in order (k: 0 = north track, 1 = south track).
 const STOPS=[{si:0,k:1},{si:1,k:1},{si:2,k:0},{si:1,k:0}];
 const CROSS=[{a:760,b:900},{a:250,b:390}];     // train x over which it changes track: before Arena, before Central
@@ -263,6 +268,11 @@ function buildDyn(){
   // lift doors are shut unless the car is on the player's floor and open
   for(const l of LIFTS)if(!(Math.abs(P.z-l.z)<.01&&l.door>.8))DYN.push({...l.dr,za:l.zmin-.5,zb:l.zmax+.5});
   if(MYDOOR.open<.8)DYN.push({...MYDOOR,za:MYDOOR.z-.5,zb:MYDOOR.z+.5});
+  if(P.z<-.5&&P.z>-1.5){ // concourse: which side of the gates we are on, and the arms if they are locked
+    const lx=P.x-STATIONS[regionAt(P.x)].dx;if(lx>121.4)P.paid=true;else if(lx<120.6)P.paid=false;
+    if(!FP&&!P.ticket&&lx>114&&lx<118.5&&P.y<103.6)P.ticket=true;        // top-down: walking up to a machine buys one
+    if(!gatesOpen())for(const g of GATES)if(Math.abs(g.cx-P.x)<3)DYN.push({x:g.cx-.1,y:g.y,w:.2,h:.8,za:-1.5,zb:-.5});
+  }else if(P.z<=-1.5)P.paid=true;else P.paid=false;
   if(P.z>-1.5)return;
   for(const tr of TRAINS){if(Math.abs(tr.x+TL/2-P.x)>TL)continue;const p=trainParts(tr);DYN.push(...p.walls);for(const k of[0,1])if(sideOpen(tr,k)<.8)DYN.push(...p.doors[k])}
   STATIONS.forEach((st,si)=>{for(let k=0;k<2;k++)if(dockedDoor(si,k)<.8)
@@ -462,13 +472,13 @@ function seatBehind(){
 }
 
 // ---------------------------------------------------------------- state
-const P={x:68,y:68.2,z:0,a:-Math.PI/2,lift:null,train:null,walk:0};
+const P={ticket:false,paid:false,x:68,y:68.2,z:0,a:-Math.PI/2,lift:null,train:null,walk:0};
 let view=VIEW_OUT,indoor=0,bIn=0,time=0,pendingBtn=null;
 // The player's position is kept across page loads. Only places that will still make sense
 // later are saved: not the inside of a lift or a train, which will have moved on.
 const SAVE='ctg.position.v1';
 try{const v=JSON.parse(localStorage.getItem(SAVE)||'null');
-  if(v&&[v.x,v.y,v.z,v.a].every(Number.isFinite)&&v.z>=-2&&v.z<=9){P.x=v.x;P.y=v.y;P.z=v.z;P.a=v.a}}catch(_){}
+  if(v&&[v.x,v.y,v.z,v.a].every(Number.isFinite)&&v.z>=-2&&v.z<=9){P.x=v.x;P.y=v.y;P.z=v.z;P.a=v.a;P.ticket=!!v.t}}catch(_){}
 // A save made while stuck inside someone else's flat (an old bug) is put back in the corridor.
 if(Number.isInteger(P.z)&&P.z>=0&&P.z<=TTOP&&inRect(P.x,P.y,TOWER)){
   const hall=P.y>53.8&&P.y<56,core=P.x>30&&P.x<41&&P.y>50.4&&P.y<=53.8,home=P.z===MYFLAT.z&&inRect(P.x,P.y,MYRECT),lobby=P.z===0&&P.x>28&&P.x<40.2&&P.y>=56;
@@ -477,12 +487,12 @@ if(Number.isInteger(P.z)&&P.z>=0&&P.z<=TTOP&&inRect(P.x,P.y,TOWER)){
 let savedAt=0;
 function savePosition(){
   if(P.lift||P.train)return;
-  try{localStorage.setItem(SAVE,JSON.stringify({x:+P.x.toFixed(3),y:+P.y.toFixed(3),z:+P.z.toFixed(4),a:+P.a.toFixed(3)}))}catch(_){}
+  try{localStorage.setItem(SAVE,JSON.stringify({x:+P.x.toFixed(3),y:+P.y.toFixed(3),z:+P.z.toFixed(4),a:+P.a.toFixed(3),t:P.ticket}))}catch(_){}
 }
 // Forget the saved spot and go back to where a new game starts.
 function resetSave(){
   try{localStorage.removeItem(SAVE)}catch(_){}
-  P.x=68;P.y=68.2;P.z=0;P.a=-Math.PI/2;P.lift=P.train=P.sit=null;pitch=0;CAM.x=P.x;CAM.y=P.y;A.kx=A.ky=0;A.hp=100;equip(null);
+  P.x=68;P.y=68.2;P.z=0;P.a=-Math.PI/2;P.lift=P.train=P.sit=null;P.ticket=false;pitch=0;CAM.x=P.x;CAM.y=P.y;A.kx=A.ky=0;A.hp=100;equip(null);
 }
 addEventListener('pagehide',savePosition);document.addEventListener('visibilitychange',()=>{if(document.hidden)savePosition()});
 // Mouse / finger travel since the last tick, in CSS pixels. input.override is a scripted direction for tests.
@@ -816,6 +826,8 @@ for(const l of LIFTS){const pn=panelOf(l);
   for(let z=l.zmin;z<=l.zmax;z++)PRESS.push({r:.09,tip:()=>'Call the lift',act:()=>{l.want=z},
     pos:()=>Math.abs(P.z-z)<.01&&P.lift!==l?{x:l.dr.x+l.dr.w+.32,y:l.y+2.43,h:Y(z)+1.1}:null});
 }
+for(const st of STATIONS)for(let k=0;k<3;k++)PRESS.push({r:.32,tip:()=>P.ticket?'Ticket machine  ·  you already have a ticket':'Ticket machine  ·  buy a ticket',act:()=>{P.ticket=true},
+  pos:()=>P.z===-1?{x:st.dx+114.75+k*1.5,y:102.72,h:Y(-1)+1.25}:null});
 // The player's front door is hinged on its west edge and swings into the flat; `open` is how far
 // (0..1 of DOOR_SWING) and `h` how far the handle is turned. Top-down it opens by itself as you
 // walk up. In first person you work it by hand: click the handle and drag down to turn it, then
@@ -1479,6 +1491,11 @@ function arenaSync(){
   const bl=A.blast;AV.blast.visible=!!bl;if(bl){AV.blast.position.set(bl.x,1,bl.y);AV.blast.scale.setScalar(.5+bl.t/.45*bl.r);AV.blast.material.opacity=.7*(1-bl.t/.45)}
 }
 
+// ticket gate arms: hinged on the post, pushed aside by whoever walks through
+for(const g of GATES){g.pivot=new THREE.Group();g.pivot.position.set(g.cx,Y(-1),g.y);
+  const mb=new MB();mb.box(-.03,0,.06,.78,.95,1.03,'#c9cdd3');mb.box(-.05,0,.1,.1,.6,1.05,'#8e949c');g.pivot.add(mb.mesh());
+  STATIONS[regionAt(g.cx)].g1.add(g.pivot)}
+
 // ---- what to show
 // A view is {k, b}: storey k of building b cut open (b=null: nothing cut open,
 // every building shown from outside), or {lift}: only the inside of a lift car.
@@ -1519,6 +1536,9 @@ function render(){
       tr.doors[k].forEach((pr,i)=>{const x=TDOORS[i];setBox(pr[0],x,wy,hw,.11,y,y+2.1);setBox(pr[1],x+TDW-hw,wy,hw,.11,y,y+2.1)})}}
   STATIONS.forEach((st,si)=>{for(let k=0;k<2;k++){const hw=TDW/2*(1-dockedDoor(si,k)*.92),y=Y(-2);
     st.doors[k].forEach((pr,i)=>{const x=st.dx+DOCK+TDOORS[i];setBox(pr[0],x,EDGEY[k]+.03,hw,.14,y,y+2.1);setBox(pr[1],x+TDW-hw,EDGEY[k]+.03,hw,.14,y,y+2.1)})}});
+  for(const g of GATES){ // an unlocked arm swings away from you as you come through
+    const d=Math.hypot(P.x-g.cx,P.y-g.cy),o=P.z===-1&&gatesOpen()?clamp((1.05-d)/.6):0;
+    g.o+=(o-g.o)*.35;g.pivot.rotation.y=(P.x<g.cx?1:-1)*g.o*1.45}
   arenaSync();
   if(P.z<-1.5&&time-signT>1){signT=time;for(const st of STATIONS)st.art.paint()}     // platform countdown signs
   if(P.z>-.9)for(const c of CANOPIES){const t=c.t,a=FP?1:lerp(.22,1,clamp((Math.hypot(P.x-t.x,P.y-t.y)-t.r+.4)/1.6));   // canopies fade when the pointer is under them
@@ -1587,7 +1607,8 @@ function updateHud(){
   const ap=aimedPress();
   const fpTip=!FP?'':ap?ap.tip()+'  ·  click':P.sit?(P.sit.horiz===undefined?'Sitting  ·  walk forward to stand up':'Sitting  ·  A / D to shuffle along, walk forward to stand up'):MYDOOR.grab?(MYDOOR.open<=0&&MYDOOR.h<.85?'drag down to unlatch':'drag sideways to swing the door'):
     aimingAtDoor()?(MYDOOR.open>0?'Door  ·  hold click and drag sideways':'Door  ·  hold click, drag down to unlatch, then sideways'):'';
-  const wp=fpTip?fpTip:regionAt(P.x)!==2||P.z!==0?'':FP?'Weapons work in top-down view (F)':A.msg>0?'You were knocked out  ·  back outside the gate':
+  const lx=P.x-STATIONS[regionAt(P.x)].dx;
+  const wp=fpTip?fpTip:P.z===-1&&!gatesOpen()&&lx>118.6&&lx<121?'The gates are locked  ·  get a ticket from the machines':P.z===-1&&P.ticket&&lx>113.5&&lx<119&&P.y<104.5?'You have a ticket':regionAt(P.x)!==2||P.z!==0?'':FP?'Weapons work in top-down view (F)':A.msg>0?'You were knocked out  ·  back outside the gate':
     !A.cur?'Step on a pad to take a weapon  ·  kills '+A.kills:
     A.cur.name+': '+A.cur.help+(A.cur.id==='fire'?'  ·  fuel '+Math.round(A.fuel*100)+'%':'')+'  ·  kills '+A.kills;
   if(wp!==lastWp){lastWp=wp;wpEl.textContent=wp;wpEl.style.display=wp?'block':'none'}
