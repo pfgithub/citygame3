@@ -155,6 +155,7 @@ function building(x,y,w,h){OUT.roofs.push({x,y,w,h,color:pick(ROOFC),details:roo
 building(-40,40,90,26);building(-40,-40,80,76);building(44,-40,42,82);
 building(-40,86,82,30);building(46,86,40,26);building(-40,120,66,80);building(30,116,56,84);
 building(140,86,100,28);building(104,116,44,84);building(152,118,88,82);
+const OFFROOF={...OFFICE,color:'#8f97a1',details:roofDetails(54,46,28,15)};
 const PARK={x:104,y:0,w:96,h:66}, PLAZA={x:104,y:86,w:32,h:26};
 const PATHS=[[120,66,120,50],[120,50,150,33],[172,66,172,50],[172,50,150,33],[104,32,150,33],
   [150,33,150,0],[150,33,168,24],[120,50,112,14],[112,14,150,8],[150,8,186,34],[186,34,172,50]];
@@ -303,6 +304,37 @@ const vis=(x,y,w,h)=>x<VB.x1&&x+w>VB.x0&&y<VB.y1&&y+h>VB.y0;
 
 // Draw a group at a given opacity. Partial opacity goes through an offscreen
 // buffer so overlapping shapes inside the group don't show through each other.
+// Draw a group at a given opacity. Partial opacity goes through an offscreen
+// buffer so overlapping shapes inside the group don't show through each other.
+function layer(alpha,fn){
+  if(alpha<.004)return;
+  if(alpha>.996){ctx.setTransform(S,0,0,S,TX,TY);fn(ctx);return}
+  octx.setTransform(1,0,0,1,0,0);octx.clearRect(0,0,W,H);octx.setTransform(S,0,0,S,TX,TY);fn(octx);
+  ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=alpha;ctx.drawImage(off,0,0);ctx.globalAlpha=1;
+}
+// The whole scene regardless of line of sight: floors crossfade with the
+// player's height, the office roof fades with distance from its door, and
+// inside the lift the world is only as visible as the doors are open.
+function drawBase(){
+  const z=P.z,fa=l=>clamp(1-Math.abs(z-l));
+  const gOut=z<0?clamp(1+z):Math.max(.28,1-z);
+  layer(gOut,drawOutdoor);
+  layer(fa(-2),drawPlatform);
+  layer(fa(-1),drawConcourse);
+  for(const l of[0,1,2])layer(fa(l),g=>drawOfficeFloor(g,l));
+  for(const s of STAIRS)layer(z<s.zl?clamp(1-(s.zl-z)):z>s.zh?clamp(1-(z-s.zh)):1,g=>drawStair(g,s));
+  layer(gOut*clamp(1+z*6),drawSubwayCover);
+  layer((1-bIn)*gOut,g=>{g.fillStyle='rgba(0,0,0,.22)';g.fillRect(OFFICE.x+1.4,OFFICE.y+OFFICE.h,OFFICE.w,1.4);g.fillRect(OFFICE.x+OFFICE.w,OFFICE.y+1.4,1.4,OFFICE.h-1.4);
+    drawRoof(g,OFFROOF);text(g,'OFFICE',68,64.3,1.5,'rgba(255,255,255,.55)')});
+  ctx.setTransform(S,0,0,S,TX,TY);
+  drawCanopies(ctx,gOut>.29?gOut:0);
+  ctx.setTransform(1,0,0,1,0,0);
+  if(P.inCar){ctx.globalAlpha=1-CAR.door;ctx.fillStyle=C.dark;ctx.fillRect(0,0,W,H)}
+  // desaturate and darken: this is the part of the world the player can't see right now
+  ctx.globalCompositeOperation='saturation';ctx.globalAlpha=.8;ctx.fillStyle='#808080';ctx.fillRect(0,0,W,H);
+  ctx.globalCompositeOperation='source-over';ctx.globalAlpha=.58;ctx.fillStyle='#0d0f13';ctx.fillRect(0,0,W,H);
+  ctx.globalAlpha=1;
+}
 function group(alpha,poly,fn){
   if(alpha<.004)return;
   const clip=()=>{ctx.setTransform(S,0,0,S,TX,TY);ctx.beginPath();ctx.moveTo(poly[0],poly[1]);
@@ -582,7 +614,8 @@ function render(){
   S=Math.min(W,H)/view;TX=W/2-P.x*S;TY=H/2-P.y*S;
   VB.x0=-TX/S;VB.y0=-TY/S;VB.x1=(W-TX)/S;VB.y1=(H-TY)/S;
   ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle=C.dark;ctx.fillRect(0,0,W,H);
-  // Only what the player has line of sight to is drawn. On a flight of stairs
+  drawBase();
+  // What the player has line of sight to is drawn in full colour on top. On a flight of stairs
   // there are two views: out of the bottom onto the lower floor and out of the
   // top onto the upper one.
   const st=STAIRS.find(s=>P.z>s.zl&&P.z<s.zh);
