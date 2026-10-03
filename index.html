@@ -17,6 +17,9 @@
     letter-spacing:.04em;pointer-events:none;white-space:nowrap;backdrop-filter:blur(6px)}
   #wp{position:fixed;bottom:calc(64px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);color:#eef0f3;font-size:13px;
     background:rgba(18,20,24,.62);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap;display:none}
+  #hp{position:fixed;bottom:calc(100px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:180px;height:10px;border-radius:6px;
+    background:rgba(18,20,24,.62);border:1px solid rgba(255,255,255,.35);overflow:hidden;display:none;pointer-events:none}
+  #hp i{display:block;height:100%;background:#e5484d}
   #hint{position:fixed;bottom:calc(22px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
     color:#eef0f3;font-size:14px;background:rgba(18,20,24,.62);padding:8px 16px;border-radius:999px;
     pointer-events:none;transition:opacity .4s;white-space:nowrap}
@@ -36,6 +39,7 @@
 <button id="fp"></button>
 <div id="hint"></div>
 <div id="wp"></div>
+<div id="hp"><i></i></div>
 <div id="elev"></div>
 <script src="three.min.js"></script>
 <script>
@@ -156,9 +160,11 @@ ffurn(2,78.4,48,3,1,'#5d6f86');ffurn(2,80.5,49.4,1,3,'#5d6f86');
 for(const[x,y]of[[80.9,64.9],[55.1,64.9],[69.2,49.6]])fround(2,x,y,.42,'#4f8a55');
 
 // ---------------------------------------------------------------- subway
-// One line, three stations LINE_D apart, one train shuttling end to end on each track.
+// One line, three stations LINE_D apart. Trains run a one-way loop: east on the south
+// track, west on the north track, crossing over just before each terminus so that a
+// terminus only ever uses one platform edge.
 // Stations are identical boxes; everything is built at an x offset.
-const LINE_D=500,TL=74,TW=2.9,TRUN=24,TDWELL=11,DOCK=108,TDW=1.3;
+const LINE_D=500,TL=74,TW=2.9,TRUN=9,TDWELL=6,DOCK=108,TDW=1.3;
 const STATIONS=[{dx:0,name:'Central'},{dx:LINE_D,name:'Harbor'},{dx:2*LINE_D,name:'Arena'}];
 const TDOORS=[];for(let i=0;i<4;i++)for(const d of[4.2,9.3,14.3])TDOORS.push(i*18.5+d);   // door offsets along a train
 const TRACKY=[103.9,120.2];   // top edge of the train on the north / south track
@@ -187,35 +193,63 @@ function buildStation(st){
   for(const x of[108,152,170])ffurn(-2,dx+x,113.2,2.2,.6,'#7a6248');
 }
 STATIONS.forEach(buildStation);
-const TRAINS=[
-  {track:0,st:0,to:0,dir:1,x:DOCK,phase:'dwell',t:0,u:0,door:0,col:'#d2452f'},
-  {track:1,st:2,to:2,dir:-1,x:DOCK+2*LINE_D,phase:'dwell',t:0,u:0,door:0,col:'#2f6fd2'}];
-// The solid parts of a train where it is right now: hull walls, and its doors.
-function trainParts(tr){
-  const x=tr.x,y=TRACKY[tr.track],t=.15,ps=tr.track?y:y+TW-t,fs=tr.track?y+TW-t:y,z={za:-2.5,zb:-1.5};
-  const walls=[{x,y:fs,w:TL,h:t,...z},{x,y,w:t,h:TW,...z},{x:x+TL-t,y,w:t,h:TW,...z}],doors=[];
-  let c=x;for(const o of TDOORS){walls.push({x:c,y:ps,w:x+o-c,h:t,...z});doors.push({x:x+o,y:ps,w:TDW,h:t,...z});c=x+o+TDW}
-  walls.push({x:c,y:ps,w:x+TL-c,h:t,...z});
-  return{walls,doors,y,ps,fs};
+// The loop, as the platform edges a train calls at in order (k: 0 = north track, 1 = south track).
+const STOPS=[{si:0,k:1},{si:1,k:1},{si:2,k:0},{si:1,k:0}];
+const CROSS=[{a:760,b:900},{a:250,b:390}];     // train x over which it changes track: before Arena, before Central
+const stopX=i=>DOCK+STATIONS[STOPS[i].si].dx;
+function trainY(leg,x){ // top edge of a train at x while running from stop `leg` to the next
+  const c=leg===1?CROSS[0]:leg===3?CROSS[1]:null;if(!c)return TRACKY[STOPS[leg].k];
+  const t=clamp((x-c.a)/(c.b-c.a));return lerp(TRACKY[1],TRACKY[0],t*t*(3-2*t));
 }
-const dockedDoor=(si,k)=>{for(const tr of TRAINS)if(tr.track===k&&tr.st===si&&tr.phase!=='run')return tr.door;return 0};
-function updateTrains(dt){
-  P.train=null;
-  for(const tr of TRAINS){
-    const y=TRACKY[tr.track],under=Math.abs(P.z+2)<.01,ox=tr.x;
-    const aboard=under&&P.x>tr.x&&P.x<tr.x+TL&&P.y>y&&P.y<y+TW;
-    if(tr.phase==='dwell'){tr.door=Math.min(1,tr.door+dt/.8);tr.t+=dt;if(tr.t>TDWELL)tr.phase='closing'}
-    else if(tr.phase==='closing'){ // doors never close on the player
-      const blocked=under&&Math.abs(P.y-(tr.track?120.175:106.825))<R+.23&&P.x>tr.x-R&&P.x<tr.x+TL+R;
-      if(blocked)tr.door=Math.min(1,tr.door+dt/.8);
-      else{tr.door=Math.max(0,tr.door-dt/.8);if(tr.door===0){tr.phase='run';tr.u=0;if(!STATIONS[tr.st+tr.dir])tr.dir=-tr.dir;tr.to=tr.st+tr.dir}}
+const TRAINS=['#d2452f','#2f6fd2','#e0a526'].map((col,i)=>({i,x:stopX(i),y:TRACKY[STOPS[i].k],phase:'dwell',t:0,u:0,door:0,col}));
+// The solid parts of a train where it is right now: hull walls, and the doors down each side.
+function trainParts(tr){
+  const x=tr.x,y=tr.y,t=.15,z={za:-2.5,zb:-1.5};
+  const walls=[{x,y,w:t,h:TW,...z},{x:x+TL-t,y,w:t,h:TW,...z}],doors=[[],[]];
+  for(const k of[0,1]){const wy=k?y:y+TW-t;let c=x;   // the door side faces the platform: south wall on the north track
+    for(const o of TDOORS){walls.push({x:c,y:wy,w:x+o-c,h:t,...z});doors[k].push({x:x+o,y:wy,w:TDW,h:t,...z});c=x+o+TDW}
+    walls.push({x:c,y:wy,w:x+TL-c,h:t,...z})}
+  return{walls,doors};
+}
+const sideOpen=(tr,k)=>tr.phase!=='run'&&STOPS[tr.i].k===k?tr.door:0;
+const dockedDoor=(si,k)=>{for(const tr of TRAINS){const s=STOPS[tr.i];if(s.k===k&&s.si===si&&tr.phase!=='run')return tr.door}return 0};
+// A train may leave once the edge ahead is empty and, where the loop doubles back on a
+// shared stretch of track near a terminus, the train coming the other way has cleared it.
+function canGo(T,tr){
+  const N=STOPS.length,n=(tr.i+1)%N;
+  if(T.some(o=>o!==tr&&(o.phase==='run'?(o.i+1)%N===n:o.i===n)))return false;
+  if(tr.i===3)return!T.some(o=>o.phase==='run'&&o.i===0&&o.x<CROSS[1].b+TL+20);
+  if(tr.i===1)return!T.some(o=>o.phase==='run'&&o.i===2&&o.x>CROSS[0].a-TL-20);
+  return true;
+}
+// Advance a set of trains. `blocked(tr)` says whether something is standing in a doorway.
+function stepTrains(T,dt,blocked){
+  for(const tr of T){
+    if(tr.phase==='dwell'){tr.door=Math.min(1,tr.door+dt/.8);tr.t+=dt;if(tr.t>TDWELL&&canGo(T,tr))tr.phase='closing'}   // waits with its doors open
+    else if(tr.phase==='closing'){
+      if(blocked(tr))tr.door=Math.min(1,tr.door+dt/.8);
+      else{tr.door=Math.max(0,tr.door-dt/.8);if(tr.door===0){tr.phase='run';tr.u=0}}
     }else{
-      tr.u=Math.min(1,tr.u+dt/TRUN);const u=tr.u;
-      tr.x=DOCK+lerp(STATIONS[tr.st].dx,STATIONS[tr.to].dx,u*u*u*(u*(u*6-15)+10));
-      if(u>=1){tr.st=tr.to;tr.phase='dwell';tr.t=0}
+      tr.u=Math.min(1,tr.u+dt/TRUN);const u=tr.u,n=(tr.i+1)%STOPS.length;
+      tr.x=lerp(stopX(tr.i),stopX(n),u*u*u*(u*(u*6-15)+10));tr.y=trainY(tr.i,tr.x);
+      if(u>=1){tr.i=n;tr.y=TRACKY[STOPS[n].k];tr.phase='dwell';tr.t=0}
     }
-    if(aboard){P.x+=tr.x-ox;P.train=tr}   // riders are carried along
   }
+}
+function updateTrains(dt){
+  const under=Math.abs(P.z+2)<.01;
+  const on=under?TRAINS.find(tr=>P.x>tr.x&&P.x<tr.x+TL&&P.y>tr.y&&P.y<tr.y+TW):null,ox=on&&on.x,oy=on&&on.y;
+  stepTrains(TRAINS,dt,tr=>under&&Math.abs(P.y-(STOPS[tr.i].k?120.175:106.825))<R+.23&&P.x>tr.x-R&&P.x<tr.x+TL+R);   // doors never close on the player
+  P.train=on||null;
+  if(on){const dx=on.x-ox,dy=on.y-oy;P.x+=dx;P.y+=dy;CAM.x+=dx;CAM.y+=dy}   // riders are carried along, and so is the camera
+}
+// Seconds until the next train opens its doors at each stop of the loop, by running the timetable forward.
+let etaAt=-1,ETA=[];
+function etas(){
+  if(Math.abs(time-etaAt)<.5)return ETA;
+  etaAt=time;const T=TRAINS.map(t=>({...t,g:null,doors:null}));ETA=STOPS.map((_,j)=>T.some(t=>t.i===j&&t.phase!=='run')?0:null);
+  for(let s=0;s<120&&ETA.includes(null);s+=.25){stepTrains(T,.25,()=>false);for(const t of T)if(t.phase==='dwell'&&ETA[t.i]===null)ETA[t.i]=s+.25}
+  return ETA;
 }
 // Colliders that move or open: rebuilt every tick.
 const DYN=[];
@@ -225,7 +259,7 @@ function buildDyn(){
   for(const l of LIFTS)if(!(Math.abs(P.z-l.z)<.01&&l.door>.8))DYN.push({...l.dr,za:l.zmin-.5,zb:l.zmax+.5});
   if(MYDOOR.open<.8)DYN.push({...MYDOOR,za:MYDOOR.z-.5,zb:MYDOOR.z+.5});
   if(P.z>-1.5)return;
-  for(const tr of TRAINS){const p=trainParts(tr);DYN.push(...p.walls);if(tr.door<.8)DYN.push(...p.doors)}
+  for(const tr of TRAINS){if(Math.abs(tr.x+TL/2-P.x)>TL)continue;const p=trainParts(tr);DYN.push(...p.walls);for(const k of[0,1])if(sideOpen(tr,k)<.8)DYN.push(...p.doors[k])}
   STATIONS.forEach((st,si)=>{for(let k=0;k<2;k++)if(dockedDoor(si,k)<.8)
     for(const o of TDOORS)DYN.push({x:st.dx+DOCK+o,y:EDGEY[k],w:TDW,h:.2,za:-2.5,zb:-1.5})});
 }
@@ -382,14 +416,14 @@ const CAM={x:P.x,y:P.y};
 
 // ---------------------------------------------------------------- arena combat
 // Top-down (mouse) mode only. Walking onto a pad takes that weapon.
-const A={cur:null,down:false,click:false,kills:0,bow:null,ball:null,fuel:1,lastDrop:null,puddles:[],arrows:[],missile:null,blast:null,lasso:null,tip:null,creatures:[]};
+const A={hp:100,kx:0,ky:0,msg:0,cur:null,down:false,click:false,kills:0,bow:null,ball:null,fuel:1,lastDrop:null,puddles:[],arrows:[],missile:null,blast:null,lasso:null,tip:null,creatures:[]};
 const crng=mulberry32(99);
 const angDiff=(a,b)=>Math.atan2(Math.sin(a-b),Math.cos(a-b));
 function spawn(c){
   const k=crng();
   Object.assign(c,k<.5?{r:.5,max:35,sp:4.2,col:'#7d4fb0'}:k<.85?{r:.75,max:70,sp:3.1,col:'#3f8f5a'}:{r:1.15,max:160,sp:2.1,col:'#b0453f'});
   do{c.x=lerp(FIELD.x0+2,FIELD.x1-2,crng());c.y=lerp(FIELD.y0+2,FIELD.y1-2,crng())}while(Math.hypot(c.x-P.x,c.y-P.y)<14);
-  c.hp=c.max;c.vx=c.vy=0;c.dead=0;c.flash=0;c.cd=0;c.wx=c.x;c.wy=c.y;c.wt=0;
+  c.hp=c.max;c.vx=c.vy=0;c.dead=0;c.flash=0;c.cd=0;c.atk=0;c.wx=c.x;c.wy=c.y;c.wt=0;
 }
 for(let i=0;i<14;i++){const c={};spawn(c);A.creatures.push(c)}
 function hurt(c,d,kx=0,ky=0){
@@ -414,7 +448,8 @@ function explode(){
 function updateArena(dt,mx,my){
   const click=A.click;A.click=false;
   if(regionAt(P.x)!==2)return;
-  if(!inArena()){if(A.cur)equip(null);return}
+  if(!inArena()){if(A.cur)equip(null);A.kx=A.ky=0;return}
+  A.msg-=dt;A.hp=Math.min(100,A.hp+dt*3);
   for(const w of WEAPONS)if(A.cur!==w&&Math.hypot(P.x-w.x,P.y-w.y)<1.4)equip(w);
   const live=A.creatures.filter(c=>!c.dead),id=A.cur&&A.cur.id;
 
@@ -484,16 +519,23 @@ function updateArena(dt,mx,my){
   const hunted=P.y<FIELD.y1+1;
   for(const c of A.creatures){
     if(c.dead){c.dead-=dt;if(c.dead<=0)spawn(c);continue}
-    c.flash-=dt;c.cd-=dt;c.wt-=dt;
+    c.flash-=dt;c.cd-=dt;c.wt-=dt;c.atk-=dt;
     if(!hunted&&c.wt<=0){c.wt=2+crng()*4;c.wx=lerp(FIELD.x0+2,FIELD.x1-2,crng());c.wy=lerp(FIELD.y0+2,FIELD.y1-2,crng())}
-    const tx=hunted?P.x:c.wx,ty=hunted?P.y:c.wy,dx=tx-c.x,dy=ty-c.y,d=Math.hypot(dx,dy)||1,stop=hunted?c.r+R+.5:.5;
+    const tx=hunted?P.x:c.wx,ty=hunted?P.y:c.wy,dx=tx-c.x,dy=ty-c.y,d=Math.hypot(dx,dy)||1,stop=hunted?c.r+R+.05:.5;
     const sp=d>stop?(hunted?c.sp:c.sp*.4):0,f=Math.min(1,dt*4);
     c.vx+=(dx/d*sp-c.vx)*f;c.vy+=(dy/d*sp-c.vy)*f;
     c.x+=c.vx*dt;c.y+=c.vy*dt;
     for(const o of A.creatures){if(o===c||o.dead)continue;const ex=c.x-o.x,ey=c.y-o.y,e=Math.hypot(ex,ey),m=c.r+o.r;
       if(e<m&&e>1e-6){c.x+=ex/e*(m-e)*.5;c.y+=ey/e*(m-e)*.5}}
-    {const ex=c.x-P.x,ey=c.y-P.y,e=Math.hypot(ex,ey),m=c.r+R;if(e<m&&e>1e-6){c.x+=ex/e*(m-e);c.y+=ey/e*(m-e)}}
+    {const ex=c.x-P.x,ey=c.y-P.y,e=Math.hypot(ex,ey)||1e-6,m=c.r+R;
+      if(hunted&&c.atk<=0&&e<m+.3){ // a bite: damage and a shove, both bigger from bigger creatures
+        A.hp-=c.r<.6?7:c.r<1?13:24;const kb=6+c.r*7;A.kx-=ex/e*kb;A.ky-=ey/e*kb;c.atk=.9;c.vx+=ex/e*3;c.vy+=ey/e*3}
+      if(e<m){c.x+=ex/e*(m-e);c.y+=ey/e*(m-e)}}
     c.x=clamp(c.x,FIELD.x0+c.r,FIELD.x1-c.r);c.y=clamp(c.y,FIELD.y0+c.r,FIELD.y1-c.r);
+  }
+  if(A.hp<=0){ // knocked out: wake up back in the plaza, outside the fence
+    P.x=1111.5;P.y=88;CAM.x=P.x;CAM.y=P.y;A.hp=100;A.kx=A.ky=0;A.msg=3;A.puddles.length=0;equip(null);
+    for(const c of A.creatures)if(!c.dead&&c.y>55){c.y-=30}
   }
 }
 function hurt2(c,d){c.hp-=d;if(c.hp<=0&&!c.dead){c.dead=2.5;A.kills++}}   // damage over time: no flinch
@@ -592,6 +634,8 @@ function tick(dt){
     wx=(f*c-r*sn)*sp;wy=(f*sn+r*c)*sp;
   }else{const k=DPR*view/Math.min(W,H);wx=input.dx*k;wy=input.dy*k}
   let amx=0,amy=0;if(!input.override&&mouseCaptured()){amx=wx;amy=wy;wx=wy=0}
+  const hx=wx,hy=wy;                                   // where the player meant to go, before any shove
+  if(A.kx||A.ky){wx+=A.kx*dt;wy+=A.ky*dt;const d=Math.exp(-dt*7);A.kx*=d;A.ky*=d;if(Math.hypot(A.kx,A.ky)<.05)A.kx=A.ky=0}
   input.dx=input.dy=0;
   const dist=Math.hypot(wx,wy);
   if(dist>1e-6){ // small steps so nothing is tunnelled through, whatever the speed
@@ -602,7 +646,7 @@ function tick(dt){
       if(Math.abs(P.x-bx)+Math.abs(P.y-by)<1e-5)break;   // pinned against something: the rest of the flick goes nowhere
     }
   }
-  if(!FP&&dist>.01)P.a+=angDiff(Math.atan2(wy,wx),P.a)*Math.min(1,dist*4);   // the pointer faces the way it last moved
+  if(!FP&&Math.hypot(hx,hy)>.01)P.a+=angDiff(Math.atan2(hy,hx),P.a)*Math.min(1,Math.hypot(hx,hy)*4);   // the pointer faces the way it last moved
   gather(P.x-1.5,P.y-1.5,P.x+1.5,P.y+1.5);
   if(!P.lift)pendingBtn=null;
   for(const l of LIFTS)updateLift(l,dt);
@@ -791,15 +835,12 @@ function drawConcourse(g){
     g.restore();
   }
 }
-// What a platform sign says about a train: where it goes next from here, and when it gets here.
-function trainSign(tr,si){
-  let st=tr.st,dir=tr.dir,s=0;
-  const next=()=>{if(!STATIONS[st+dir])dir=-dir;st+=dir};
-  if(tr.phase==='run'){st=tr.to;s=(1-tr.u)*TRUN}
-  else if(st!==si){s=Math.max(0,TDWELL-tr.t)+1;next();s+=TRUN}
-  for(let n=0;n<6&&st!==si;n++){s+=TDWELL+1+TRUN;next()}
-  const dest=STATIONS[STATIONS[st+dir]?st+dir:st-dir].name;
-  return'to '+dest+'  ·  '+(s<.01?'boarding':Math.ceil(s)+' s');
+// What the sign over a platform edge says: where trains from here go next, and how long until one.
+function trainSign(si,k){
+  const j=STOPS.findIndex(s=>s.si===si&&s.k===k);
+  if(j<0)return'no trains from this side';
+  const e=etas()[j];
+  return'to '+STATIONS[STOPS[(j+1)%STOPS.length].si].name+'  ·  '+(e===0?'boarding':e===null?'delayed':Math.ceil(e)+' s');
 }
 function drawPlatform(g){
   const F=FL[-2],p=PLAT,x0=VB.x0-1,w=VB.x1-VB.x0+2;
@@ -819,8 +860,8 @@ function drawPlatform(g){
     g.fillStyle='#e7c63f';g.fillRect(p.x,p.y+.2,p.w,.4);g.fillRect(p.x,p.y+p.h-.6,p.w,.4);
     text(g,'‹  EXIT',143,113.5,.6,'rgba(40,44,52,.7)');
     text(g,st.name.toUpperCase(),164,113.5,1.6,'rgba(0,0,0,.13)');
-    for(let k=0;k<2;k++){const tr=TRAINS[k],ty=k?118.7:108.3;
-      for(const sx of[118,150,178])text(g,trainSign(tr,si),sx,ty,.5,'rgba(40,44,52,.75)')}
+    for(let k=0;k<2;k++){const ty=k?118.7:108.3;
+      for(const sx of[118,150,178])text(g,trainSign(si,k),sx,ty,.5,'rgba(40,44,52,.75)')}
     g.restore();
   });
 }
@@ -1060,22 +1101,31 @@ for(const st of STATIONS){
   for(const[x0,x1]of gaps)for(const ty of[103.3,120.2]){
     const m=slab({x:x0,y:ty,w:x1-x0,h:3.5},[],y,{mat:a.mat,uv:(wx,wy)=>[wx/7,1-(wy-ty)/3.5]});TUNNEL.add(m);
     fpAdd(TUNNEL,slab({x:x0,y:ty,w:x1-x0,h:3.5},[],Y(-1)-.35,CEIL))}
-  for(const[x0,x1]of gaps)mb.box(x0,106.8,x1-x0,13.4,y,y+RH,'#2a2c31','#0f1013');
+  // crossover caverns: the rock between the two tunnels is opened up and a track swings across
+  const caves=CROSS.map(c=>({c,x0:c.a-12,x1:c.b+TL+12}));
+  for(const[x0,x1]of gaps){let c=x0;
+    for(const cv of caves.filter(v=>v.x0>x0&&v.x1<x1).sort((p,q)=>p.x0-q.x0)){mb.box(c,106.8,cv.x0-c,13.4,y,y+RH,'#2a2c31','#0f1013');c=cv.x1}
+    mb.box(c,106.8,x1-c,13.4,y,y+RH,'#2a2c31','#0f1013')}
+  for(const cv of caves){const r={x:cv.x0,y:106.8,w:cv.x1-cv.x0,h:13.4};
+    TUNNEL.add(slab(r,[],y,art(r.x,r.y,r.w,r.h,12,g=>{
+      g.fillStyle='#24262b';g.fillRect(r.x,r.y,r.w,r.h);
+      const yc=xc=>{const t=clamp((xc-TL/2-cv.c.a)/(cv.c.b-cv.c.a));return lerp(TRACKY[1],TRACKY[0],t*t*(3-2*t))+TW/2};
+      g.strokeStyle='#4a4038';g.lineWidth=.22;g.beginPath();for(let x=r.x;x<r.x+r.w;x+=.7){g.moveTo(x,yc(x)-1.2);g.lineTo(x,yc(x)+1.2)}g.stroke();
+      g.strokeStyle='#9aa0a8';g.lineWidth=.08;for(const o of[-.72,.72]){g.beginPath();for(let x=r.x;x<=r.x+r.w;x+=.5)g.lineTo(x,yc(x)+o);g.stroke()}})));
+    fpAdd(TUNNEL,slab(r,[],Y(-1)-.35,CEIL))}
   mb.box(-150,101.3,X1+150,2,y,y+RH,'#2a2c31','#0f1013');mb.box(-150,123.7,X1+150,2,y,y+RH,'#2a2c31','#0f1013');
   for(let x=-150;x<X1;x+=10){glow.box(x,103.3,.7,.1,y+2,y+2.25,'#ffe9a8');glow.box(x,123.6,.7,.1,y+2,y+2.25,'#ffe9a8')}
   TUNNEL.add(mb.mesh(),glow.mesh(GLOW));
 }
-for(const tr of TRAINS){
-  const g=new THREE.Group(),mb=new MB(),p=trainParts({x:0,track:tr.track}),y=Y(-2),cl=TL/4;
-  mb.box(0,p.y,TL,TW,y-.02,y+.04,'#d5d8dc');
-  for(let i=1;i<4;i++)mb.box(i*cl-.3,p.y+.15,.6,TW-.3,y+.04,y+.07,'#8a8f96');
+for(const tr of TRAINS){ // built around a local origin; the group is moved to wherever the train is
+  const g=new THREE.Group(),mb=new MB(),p=trainParts({x:0,y:0}),y=Y(-2),cl=TL/4;
+  mb.box(0,0,TL,TW,y-.02,y+.04,'#d5d8dc');
+  for(let i=1;i<4;i++)mb.box(i*cl-.3,.15,.6,TW-.3,y+.04,y+.07,'#8a8f96');
   for(const w of p.walls)mb.box(w.x,w.y,w.w,w.h,y,y+2.1,'#565c65',tr.col);
-  for(let i=0;i<4;i++){const cx=i*cl;
-    mb.box(cx+.8,tr.track?p.fs-.45:p.fs+.15,cl-1.6,.45,y,y+.45,shade(tr.col),tr.col);
-    for(const[a,b]of[[.8,3.9],[5.8,9],[10.9,14],[15.9,17.7]])mb.box(cx+a,tr.track?p.ps+.15:p.ps-.45,b-a,.45,y,y+.45,shade(tr.col),tr.col)}
-  g.add(mb.mesh());tr.g=g;tr.ps=p.ps;scene.add(g);
-  {const rf=new MB();rf.box(0,p.y,TL,TW,y+2.1,y+2.2,tr.col);fpAdd(g,rf.mesh())}
-  tr.doors=TDOORS.map(()=>[dynBox(g,'#e9ecef'),dynBox(g,'#e9ecef')]);
+  for(let i=0;i<4;i++)for(const[a,b]of[[.8,3.9],[5.8,9],[10.9,14],[15.9,17.7]])for(const sy of[.15,TW-.6])mb.box(i*cl+a,sy,b-a,.45,y,y+.45,shade(tr.col),tr.col);
+  g.add(mb.mesh());tr.g=g;scene.add(g);
+  {const rf=new MB();rf.box(0,0,TL,TW,y+2.1,y+2.2,tr.col);fpAdd(g,rf.mesh())}
+  tr.doors=[0,1].map(()=>TDOORS.map(()=>[dynBox(g,'#e9ecef'),dynBox(g,'#e9ecef')]));
 }
 
 // ---- arena: creatures and weapons (all dynamic)
@@ -1160,8 +1210,9 @@ function render(){
     l.doors.forEach((pr,i)=>{const z=l.zmin+i,d=l.dr,hw=doorHalf(l,doorOpen(l,z)),y=Y(z)+.03;
       setBox(pr[0],d.x,d.y+.04,hw,d.h-.08,y,y+2.2);setBox(pr[1],d.x+d.w-hw,d.y+.04,hw,d.h-.08,y,y+2.2)})}
   {const d=MYDOOR,y=Y(d.z)+.03;setBox(d.mesh,d.x,d.y+.04,d.w*(1-d.open),d.h-.08,y,y+2.1)}
-  for(const tr of TRAINS){tr.g.position.x=tr.x;const hw=TDW/2*(1-tr.door*.92),y=Y(-2);
-    tr.doors.forEach((pr,i)=>{const x=TDOORS[i];setBox(pr[0],x,tr.ps+.02,hw,.11,y,y+2.1);setBox(pr[1],x+TDW-hw,tr.ps+.02,hw,.11,y,y+2.1)})}
+  for(const tr of TRAINS){tr.g.position.set(tr.x,0,tr.y);const y=Y(-2);
+    for(const k of[0,1]){const hw=TDW/2*(1-sideOpen(tr,k)*.92),wy=(k?0:TW-.15)+.02;
+      tr.doors[k].forEach((pr,i)=>{const x=TDOORS[i];setBox(pr[0],x,wy,hw,.11,y,y+2.1);setBox(pr[1],x+TDW-hw,wy,hw,.11,y,y+2.1)})}}
   STATIONS.forEach((st,si)=>{for(let k=0;k<2;k++){const hw=TDW/2*(1-dockedDoor(si,k)*.92),y=Y(-2);
     st.doors[k].forEach((pr,i)=>{const x=st.dx+DOCK+TDOORS[i];setBox(pr[0],x,EDGEY[k]+.03,hw,.14,y,y+2.1);setBox(pr[1],x+TDW-hw,EDGEY[k]+.03,hw,.14,y,y+2.1)})}});
   arenaSync();
@@ -1206,7 +1257,7 @@ const ptrEl=document.getElementById('ptr');
 const locEl=document.getElementById('loc'),elevEl=document.getElementById('elev');let lastLoc='',hudLift=null;
 function locName(){
   if(P.lift){const l=P.lift;return'Lift · '+(l.moving?(l.target>l.z?'going up':'going down')+' · '+(Math.round(l.z)+1):'Floor '+(Math.round(l.z)+1))}
-  if(P.train)return'Train · '+(P.train.phase==='run'?'to '+STATIONS[P.train.to].name:'at '+STATIONS[P.train.st].name);
+  if(P.train){const t=P.train;return'Train · '+(t.phase==='run'?'to '+STATIONS[STOPS[(t.i+1)%STOPS.length].si].name:'at '+STATIONS[STOPS[t.i].si].name)}
   const ri=regionAt(P.x),sn=STATIONS[ri].name;
   if(P.z<-1.5)return sn+' Station · Platform';if(P.z<-.5)return sn+' Station · Concourse';
   if(P.z<-.01)return sn+' Station entrance';
@@ -1222,9 +1273,11 @@ function locName(){
   if(inRect(P.x,P.y,PARK))return'Park';if(inRect(P.x,P.y,PLAZA))return'Station Plaza';
   if(P.y>=66&&P.y<=86)return'Main Avenue';if(P.x>=86&&P.x<=104)return'Cross Street';return'Back alley';
 }
-const wpEl=document.getElementById('wp');let lastWp='';
+const wpEl=document.getElementById('wp'),hpEl=document.getElementById('hp');let lastWp='';
 function updateHud(){
-  const wp=regionAt(P.x)!==2||P.z!==0?'':FP?'Weapons work in top-down view (F)':
+  const fight=regionAt(P.x)===2&&P.z===0&&!FP;
+  hpEl.style.display=fight?'block':'none';if(fight)hpEl.firstChild.style.width=Math.max(0,A.hp)+'%';
+  const wp=regionAt(P.x)!==2||P.z!==0?'':FP?'Weapons work in top-down view (F)':A.msg>0?'You were knocked out  ·  back outside the gate':
     !A.cur?'Step on a pad to take a weapon  ·  kills '+A.kills:
     A.cur.name+': '+A.cur.help+(A.cur.id==='fire'?'  ·  fuel '+Math.round(A.fuel*100)+'%':'')+'  ·  kills '+A.kills;
   if(wp!==lastWp){lastWp=wp;wpEl.textContent=wp;wpEl.style.display=wp?'block':'none'}
@@ -1277,7 +1330,7 @@ elevEl.addEventListener('pointerdown',e=>{e.preventDefault();const f=e.target.da
 let last=performance.now();
 function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;tick(dt);render();requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
-window.G={P,A,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
+window.G={P,A,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
 </script>
 </body>
 </html>
