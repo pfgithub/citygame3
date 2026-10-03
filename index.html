@@ -425,12 +425,34 @@ const TSEATS=[];for(let i=0;i<4;i++)for(const[a,b]of[[.8,3.9],[5.8,9],[10.9,14],
 // A seat is either a spot (chair) or a stretch: `p` along its length, `q` across, in the frame
 // of the train it belongs to if any.
 const seatXY=st=>st.horiz===undefined?st:{x:(st.tr?st.tr.x:0)+(st.horiz?st.p:st.q),y:(st.tr?st.tr.y:0)+(st.horiz?st.q:st.p)};
+// Is there something solid within r of this spot, on the player's level?
+function solidAt(x,y,r){
+  for(const list of[COL,DYN])for(const c of list){
+    if(P.z<c.za||P.z>=c.zb)continue;
+    if(c.r!==undefined){if(Math.hypot(x-c.cx,y-c.cy)<c.r+r)return true}
+    else if(x>c.x-r&&x<c.x+c.w+r&&y>c.y-r&&y<c.y+c.h+r&&Math.hypot(x-clamp(x,c.x,c.x+c.w),y-clamp(y,c.y,c.y+c.h))<=r)return true}
+  return false;
+}
+// Where to put the player's feet when they get up: off the seat towards where they are looking
+// if that is clear, otherwise off whichever side of the seat is. Never through a wall.
+function standSpot(st){
+  const s=seatXY(st);if(!st.out)return s;
+  const fx=Math.cos(P.a),fy=Math.sin(P.a),dirs=[[fx,fy]];
+  if(st.horiz!==undefined){const n=st.horiz?[[0,1],[0,-1]]:[[1,0],[-1,0]];n.sort((a,b)=>(b[0]*fx+b[1]*fy)-(a[0]*fx+a[1]*fy));dirs.push(...n)}
+  for(const[dx,dy]of dirs){
+    const tx=s.x+dx*st.out,ty=s.y+dy*st.out;if(solidAt(tx,ty,R-.02))continue;
+    let clear=true;for(let k=1;k<8&&clear;k++){const x=s.x+dx*st.out*k/8,y=s.y+dy*st.out*k/8;
+      if(st.rect&&inRect(x,y,st.rect))continue;                    // still over the seat itself
+      if(solidAt(x,y,0))clear=false}
+    if(clear)return{x:tx,y:ty}}
+  return null;
+}
 function seatBehind(){
   const c=Math.cos(P.a),sn=Math.sin(P.a),behind=(x,y,reach)=>{const dx=x-P.x,dy=y-P.y,d=Math.hypot(dx,dy);return d<reach&&dx*c+dy*sn<-.45*d};
   const ch=CHAIRS.find(q=>q.z===P.z&&behind(q.x,q.y,.62));if(ch)return{x:ch.x,y:ch.y,out:0};
   const stretch=(r,tr)=>{const ox=tr?tr.x:0,oy=tr?tr.y:0,horiz=r.w>r.h,half=Math.min(r.w,r.h)/2,e=Math.min(.3,Math.max(r.w,r.h)/2);
     const min=(horiz?r.x:r.y)+e,max=(horiz?r.x+r.w:r.y+r.h)-e,p=clamp(horiz?P.x-ox:P.y-oy,min,max),q=horiz?r.y+r.h/2:r.x+r.w/2;
-    return behind(ox+(horiz?p:q),oy+(horiz?q:p),half+R+.25)?{p,q,horiz,min,max,tr,out:r.loose?.45:half+R+.07}:null};
+    return behind(ox+(horiz?p:q),oy+(horiz?q:p),half+R+.25)?{p,q,horiz,min,max,tr,rect:tr?null:r,out:r.loose?.45:half+R+.07}:null};
   for(const b of BENCHES)if(b.z===P.z){const st=stretch(b,null);if(st)return st}
   if(P.train)for(const r of TSEATS){const st=stretch(r,P.train);if(st)return st}
   return null;
@@ -444,6 +466,11 @@ let view=VIEW_OUT,indoor=0,bIn=0,time=0,pendingBtn=null;
 const SAVE='ctg.position.v1';
 try{const v=JSON.parse(localStorage.getItem(SAVE)||'null');
   if(v&&[v.x,v.y,v.z,v.a].every(Number.isFinite)&&v.z>=-2&&v.z<=9){P.x=v.x;P.y=v.y;P.z=v.z;P.a=v.a}}catch(_){}
+// A save made while stuck inside someone else's flat (an old bug) is put back in the corridor.
+if(Number.isInteger(P.z)&&P.z>=0&&P.z<=TTOP&&inRect(P.x,P.y,TOWER)){
+  const hall=P.y>53.8&&P.y<56,core=P.x>30&&P.x<41&&P.y>50.4&&P.y<=53.8,home=P.z===MYFLAT.z&&inRect(P.x,P.y,MYRECT),lobby=P.z===0&&P.x>28&&P.x<40.2&&P.y>=56;
+  if(!hall&&!core&&!home&&!lobby){P.x=34;P.y=54.9}
+}
 let savedAt=0;
 function savePosition(){
   if(P.lift||P.train)return;
@@ -814,7 +841,8 @@ function tick(dt){
     let f=0,r=0;if(keys.has('KeyW'))f+=1;if(keys.has('KeyS'))f-=1;if(keys.has('KeyD'))r+=1;if(keys.has('KeyA'))r-=1;
     if(P.sit){ // seated: settle onto the chair; walking forward stands you up
       const st=P.sit,c=Math.cos(P.a),sn=Math.sin(P.a);
-      if(f>0){P.x+=c*st.out;P.y+=sn*st.out;P.sit=null}   // step clear of the seat as you get up
+      const up=f>0?standSpot(st):null;
+      if(up){P.x=up.x;P.y=up.y;P.sit=null}                // get up, stepping clear of the seat
       else{
         if(r&&st.horiz!==undefined)st.p=clamp(st.p+Math.sign(st.horiz?-sn:c)*r*1.3*dt,st.min,st.max);   // A/D shuffle along a bench
         const q=seatXY(st),k=Math.min(1,dt*10);P.x+=(q.x-P.x)*k;P.y+=(q.y-P.y)*k;f=r=0}
