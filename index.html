@@ -15,6 +15,8 @@
   #loc{position:fixed;top:calc(10px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);
     padding:6px 14px;border-radius:999px;background:rgba(18,20,24,.62);color:#eef0f3;font-size:14px;
     letter-spacing:.04em;pointer-events:none;white-space:nowrap;backdrop-filter:blur(6px)}
+  #wp{position:fixed;bottom:calc(64px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);color:#eef0f3;font-size:13px;
+    background:rgba(18,20,24,.62);padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap;display:none}
   #hint{position:fixed;bottom:calc(22px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
     color:#eef0f3;font-size:14px;background:rgba(18,20,24,.62);padding:8px 16px;border-radius:999px;
     pointer-events:none;transition:opacity .4s;white-space:nowrap}
@@ -33,6 +35,7 @@
 <div id="loc"></div>
 <button id="fp"></button>
 <div id="hint"></div>
+<div id="wp"></div>
 <div id="elev"></div>
 <script src="three.min.js"></script>
 <script>
@@ -51,7 +54,8 @@ function segDist(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1;
   const t=clamp(((px-x1)*dx+(py-y1)*dy)/(dx*dx+dy*dy||1));return Math.hypot(px-x1-dx*t,py-y1-dy*t)}
 
 // Walkable surface regions: the city, and the harbour at the far end of the subway line.
-const REGIONS=[{x0:0,y0:0,x1:200,y1:160},{x0:560,y0:42,x1:680,y1:130}];
+const REGIONS=[{x0:0,y0:0,x1:200,y1:160},{x0:560,y0:42,x1:680,y1:130},{x0:1052,y0:-8,x1:1168,y1:106}];
+const regionAt=x=>x<400?0:x<900?1:2;   // which stop of the line a given x belongs to
 const R=0.25;                       // player radius (shoulder width 0.5 m)
 const VIEW_OUT=34, VIEW_IN=12;      // metres visible across the short screen side
 const SPEED_IN=3.6;                 // m/s for scripted input (tests); the mouse itself has no speed limit
@@ -152,10 +156,10 @@ ffurn(2,78.4,48,3,1,'#5d6f86');ffurn(2,80.5,49.4,1,3,'#5d6f86');
 for(const[x,y]of[[80.9,64.9],[55.1,64.9],[69.2,49.6]])fround(2,x,y,.42,'#4f8a55');
 
 // ---------------------------------------------------------------- subway
-// One line, two stations LINE_D apart, one train shuttling on each track.
+// One line, three stations LINE_D apart, one train shuttling end to end on each track.
 // Stations are identical boxes; everything is built at an x offset.
 const LINE_D=500,TL=74,TW=2.9,TRUN=24,TDWELL=11,DOCK=108,TDW=1.3;
-const STATIONS=[{dx:0,name:'Central'},{dx:LINE_D,name:'Harbor'}];
+const STATIONS=[{dx:0,name:'Central'},{dx:LINE_D,name:'Harbor'},{dx:2*LINE_D,name:'Arena'}];
 const TDOORS=[];for(let i=0;i<4;i++)for(const d of[4.2,9.3,14.3])TDOORS.push(i*18.5+d);   // door offsets along a train
 const TRACKY=[103.9,120.2];   // top edge of the train on the north / south track
 const EDGEY=[106.8,120];      // platform screen wall on each side
@@ -184,8 +188,8 @@ function buildStation(st){
 }
 STATIONS.forEach(buildStation);
 const TRAINS=[
-  {track:0,st:0,to:0,x:DOCK,phase:'dwell',t:0,u:0,door:0,col:'#d2452f'},
-  {track:1,st:1,to:1,x:DOCK+LINE_D,phase:'dwell',t:0,u:0,door:0,col:'#2f6fd2'}];
+  {track:0,st:0,to:0,dir:1,x:DOCK,phase:'dwell',t:0,u:0,door:0,col:'#d2452f'},
+  {track:1,st:2,to:2,dir:-1,x:DOCK+2*LINE_D,phase:'dwell',t:0,u:0,door:0,col:'#2f6fd2'}];
 // The solid parts of a train where it is right now: hull walls, and its doors.
 function trainParts(tr){
   const x=tr.x,y=TRACKY[tr.track],t=.15,ps=tr.track?y:y+TW-t,fs=tr.track?y+TW-t:y,z={za:-2.5,zb:-1.5};
@@ -204,7 +208,7 @@ function updateTrains(dt){
     else if(tr.phase==='closing'){ // doors never close on the player
       const blocked=under&&Math.abs(P.y-(tr.track?120.175:106.825))<R+.23&&P.x>tr.x-R&&P.x<tr.x+TL+R;
       if(blocked)tr.door=Math.min(1,tr.door+dt/.8);
-      else{tr.door=Math.max(0,tr.door-dt/.8);if(tr.door===0){tr.phase='run';tr.u=0;tr.to=1-tr.st}}
+      else{tr.door=Math.max(0,tr.door-dt/.8);if(tr.door===0){tr.phase='run';tr.u=0;if(!STATIONS[tr.st+tr.dir])tr.dir=-tr.dir;tr.to=tr.st+tr.dir}}
     }else{
       tr.u=Math.min(1,tr.u+dt/TRUN);const u=tr.u;
       tr.x=DOCK+lerp(STATIONS[tr.st].dx,STATIONS[tr.to].dx,u*u*u*(u*(u*6-15)+10));
@@ -347,6 +351,21 @@ for(const[x,y]of[[32.4,65],[35.6,65],[28.9,65],[39.4,65]])fround(0,x,y,.38,'#4f8
   ffurn(z,32.1,65,1.8,.6,'#8a6a4a');fround(z,33,64.6,.24,'#3b4350',{ghost:1});
   ffurn(z,33.05,62.8,.9,.55,'#7b6a58');fround(z,33.55,61.6,.32,'#4f8a55');
 }
+// ---------------------------------------------------------------- arena (third station's surface)
+const FIELD={x0:1053,y0:-7,x1:1167,y1:72.5};
+const WEAPONS=[
+  {id:'bow',name:'Bow',c:'#8a6a4a',help:'hold click and pull back, release to shoot the other way'},
+  {id:'ball',name:'Spike ball',c:'#5b616a',help:'swing it by circling the mouse'},
+  {id:'fire',name:'Fire',c:'#d2642f',help:'click or drag to pour fuel; it lights a moment later'},
+  {id:'missile',name:'Missile',c:'#6f8f3c',help:'click to launch, steer with the mouse, click again to detonate'},
+  {id:'lasso',name:'Lasso',c:'#b08a4f',help:'click to pay out rope, circle enemies and come back to the start'},
+  {id:'sword',name:'Sword',c:'#9aa3ad',help:'it points the way you move: stab or slash'}];
+WEAPONS.forEach((w,i)=>{w.x=1076+i*14;w.y=82});
+building(1012,-48,40,196);building(1168,-48,40,196);building(1052,-48,116,40);building(1052,106,116,40);
+fenceSeg(1052,74,1104,74);fenceSeg(1119,74,1168,74);
+for(const[x,y]of[[1060,88],[1160,88],[1060,100],[1160,100]])lamp(x,y);
+circ(1108.6,90.8,.12);
+
 const BUILDINGS=[
   {rect:OFFICE,door:DOORPT,roof:OFFROOF,top:2,awning:'#8c3f37',bIn:0},
   {rect:TOWER,door:TDOORPT,roof:TROOF,top:TTOP,awning:'#3d5a80',bIn:0}];
@@ -360,6 +379,124 @@ const input={dx:0,dy:0,override:null};
 const keys=new Set();
 let FP=false,pitch=0;                // first-person mode: P.a is the heading, pitch the look up/down
 const CAM={x:P.x,y:P.y};
+
+// ---------------------------------------------------------------- arena combat
+// Top-down (mouse) mode only. Walking onto a pad takes that weapon.
+const A={cur:null,down:false,click:false,kills:0,bow:null,ball:null,fuel:1,lastDrop:null,puddles:[],arrows:[],missile:null,blast:null,lasso:null,tip:null,creatures:[]};
+const crng=mulberry32(99);
+const angDiff=(a,b)=>Math.atan2(Math.sin(a-b),Math.cos(a-b));
+function spawn(c){
+  const k=crng();
+  Object.assign(c,k<.5?{r:.5,max:35,sp:4.2,col:'#7d4fb0'}:k<.85?{r:.75,max:70,sp:3.1,col:'#3f8f5a'}:{r:1.15,max:160,sp:2.1,col:'#b0453f'});
+  do{c.x=lerp(FIELD.x0+2,FIELD.x1-2,crng());c.y=lerp(FIELD.y0+2,FIELD.y1-2,crng())}while(Math.hypot(c.x-P.x,c.y-P.y)<14);
+  c.hp=c.max;c.vx=c.vy=0;c.dead=0;c.flash=0;c.cd=0;c.wx=c.x;c.wy=c.y;c.wt=0;
+}
+for(let i=0;i<14;i++){const c={};spawn(c);A.creatures.push(c)}
+function hurt(c,d,kx=0,ky=0){
+  if(c.dead)return;
+  const k=Math.hypot(kx,ky);if(k>9){kx*=9/k;ky*=9/k}
+  c.hp-=d;c.flash=.18;c.vx+=kx;c.vy+=ky;
+  if(c.hp<=0){c.dead=2.5;A.kills++}
+}
+function inPoly(x,y,pts){let ins=false;
+  for(let i=0,j=pts.length-1;i<pts.length;j=i++){const a=pts[i],b=pts[j];
+    if((a.y>y)!==(b.y>y)&&x<(b.x-a.x)*(y-a.y)/(b.y-a.y)+a.x)ins=!ins}
+  return ins}
+function equip(w){A.cur=w;A.bow=A.missile=A.lasso=A.tip=null;A.ball=w&&w.id==='ball'?{x:P.x,y:P.y,px:P.x,py:P.y}:null}
+const inArena=()=>!FP&&P.z===0&&regionAt(P.x)===2;
+// While the bow is drawn or a missile is flying, the mouse drives that instead of the player.
+const mouseCaptured=()=>inArena()&&!!(A.bow||A.missile);
+function explode(){
+  const m=A.missile;A.missile=null;A.blast={x:m.x,y:m.y,t:0};
+  for(const c of A.creatures){const dx=c.x-m.x,dy=c.y-m.y,d=Math.hypot(dx,dy);
+    if(d<4.5)hurt(c,95*(1-d/4.5*.6),dx/(d||1)*8,dy/(d||1)*8)}
+}
+function updateArena(dt,mx,my){
+  const click=A.click;A.click=false;
+  if(regionAt(P.x)!==2)return;
+  if(!inArena()){if(A.cur)equip(null);return}
+  for(const w of WEAPONS)if(A.cur!==w&&Math.hypot(P.x-w.x,P.y-w.y)<1.4)equip(w);
+  const live=A.creatures.filter(c=>!c.dead),id=A.cur&&A.cur.id;
+
+  if(id==='bow'){
+    // The drag point is where the hand wants the string; the string follows at its own pace.
+    if(click&&!A.bow)A.bow={dx:0,dy:0,px:0,py:0};
+    const b=A.bow;
+    if(b){
+      b.dx+=mx;b.dy+=my;const d=Math.hypot(b.dx,b.dy);if(d>6){b.dx*=6/d;b.dy*=6/d}
+      const ex=b.dx-b.px,ey=b.dy-b.py,e=Math.hypot(ex,ey),st=Math.min(e,7*dt);if(e>1e-6){b.px+=ex/e*st;b.py+=ey/e*st}
+      if(!A.down){const pl=Math.hypot(b.px,b.py),sp=14+7*pl;
+        if(pl>.4)A.arrows.push({x:P.x,y:P.y,vx:-b.px/pl*sp,vy:-b.py/pl*sp,life:2.5,dmg:15+12*pl});
+        A.bow=null}
+    }
+  }else if(id==='ball'){
+    // A weight on a chain: it keeps its own momentum and is only ever pulled, never pushed.
+    const b=A.ball,L=2.4;let sx=(b.x-b.px)*.985,sy=(b.y-b.py)*.985;const sl=Math.hypot(sx,sy);if(sl>1.5){sx*=1.5/sl;sy*=1.5/sl}
+    b.px=b.x;b.py=b.y;b.x+=sx;b.y+=sy;
+    const dx=b.x-P.x,dy=b.y-P.y,d=Math.hypot(dx,dy);if(d>L){b.x=P.x+dx/d*L;b.y=P.y+dy/d*L}
+    const vx=(b.x-b.px)/dt,vy=(b.y-b.py)/dt,sp=Math.hypot(vx,vy);
+    if(sp>3)for(const c of live)if(c.cd<=0&&segDist(c.x,c.y,b.px,b.py,b.x,b.y)<c.r+.45){hurt(c,Math.min(70,sp*2.4),vx*.3,vy*.3);c.cd=.35}
+  }else if(id==='fire'){
+    if(A.down&&A.fuel>=.07&&(click||!A.lastDrop||Math.hypot(P.x-A.lastDrop.x,P.y-A.lastDrop.y)>.75)){
+      A.puddles.push({x:P.x,y:P.y,t:0});A.lastDrop={x:P.x,y:P.y};A.fuel-=.07;if(A.puddles.length>60)A.puddles.shift()}
+    if(!A.down)A.fuel=Math.min(1,A.fuel+dt*.3);
+  }else if(id==='missile'){
+    if(click){if(A.missile)explode();else A.missile={x:P.x,y:P.y,a:P.a,want:P.a,life:9}}
+  }else if(id==='lasso'){
+    if(click)A.lasso=A.lasso?null:{pts:[{x:P.x,y:P.y}],len:0,flash:0};
+    const l=A.lasso;
+    if(l&&!l.flash){
+      const q=l.pts[l.pts.length-1],d=Math.hypot(P.x-q.x,P.y-q.y);
+      if(d>.4){l.pts.push({x:P.x,y:P.y});l.len+=d}
+      while(l.len>36&&l.pts.length>2){ // out of rope: the far end gets dragged along
+        const a=l.pts[0],b=l.pts[1],sg=Math.hypot(b.x-a.x,b.y-a.y),ex=l.len-36;
+        if(sg<=ex){l.pts.shift();l.len-=sg}else{a.x+=(b.x-a.x)*ex/sg;a.y+=(b.y-a.y)*ex/sg;l.len-=ex}}
+      if(l.len>8&&Math.hypot(P.x-l.pts[0].x,P.y-l.pts[0].y)<1.3){for(const c of live)if(inPoly(c.x,c.y,l.pts))hurt(c,90);l.flash=.4}
+    }
+  }else if(id==='sword'){
+    const c=Math.cos(P.a),sn=Math.sin(P.a),tx=P.x+c*2.1,ty=P.y+sn*2.1,bx=P.x+c*.35,by=P.y+sn*.35;
+    if(A.tip){const vx=(tx-A.tip.x)/dt,vy=(ty-A.tip.y)/dt,sp=Math.hypot(vx,vy);
+      if(sp>2.5)for(const cr of live)if(cr.cd<=0&&(segDist(cr.x,cr.y,bx,by,tx,ty)<cr.r+.12||segDist(cr.x,cr.y,A.tip.x,A.tip.y,tx,ty)<cr.r+.12)){
+        hurt(cr,Math.min(60,6+sp*1.7),vx*.25,vy*.25);cr.cd=.3}}
+    A.tip={x:tx,y:ty};
+  }
+  if(A.lasso&&A.lasso.flash){A.lasso.flash-=dt;if(A.lasso.flash<=0)A.lasso=null}
+
+  { // missile: slow, constant speed, turned by the mouse
+    const m=A.missile;
+    if(m){
+      if(Math.hypot(mx,my)>.03)m.want=Math.atan2(my,mx);
+      m.a+=clamp(angDiff(m.want,m.a),-2.8*dt,2.8*dt);m.x+=Math.cos(m.a)*9*dt;m.y+=Math.sin(m.a)*9*dt;m.life-=dt;
+      if(m.life<=0||m.x<REGIONS[2].x0||m.x>REGIONS[2].x1||m.y<REGIONS[2].y0||m.y>REGIONS[2].y1||live.some(c=>Math.hypot(c.x-m.x,c.y-m.y)<c.r+.35))explode();
+    }
+    if(A.blast){A.blast.t+=dt;if(A.blast.t>.45)A.blast=null}
+  }
+  for(const a of A.arrows){ // arrows fly straight and stop in the first thing they hit
+    const nx=a.x+a.vx*dt,ny=a.y+a.vy*dt;a.life-=dt;
+    for(const c of live)if(a.life>0&&segDist(c.x,c.y,a.x,a.y,nx,ny)<c.r+.1){hurt(c,a.dmg,a.vx*.15,a.vy*.15);a.life=0}
+    a.x=nx;a.y=ny;if(nx<REGIONS[2].x0||nx>REGIONS[2].x1||ny<REGIONS[2].y0||ny>REGIONS[2].y1)a.life=0;
+  }
+  A.arrows=A.arrows.filter(a=>a.life>0);
+  for(const p of A.puddles){p.t+=dt;if(p.t>1&&p.t<4.5)for(const c of live)if(Math.hypot(c.x-p.x,c.y-p.y)<1.35+c.r*.5){c.flash=Math.max(c.flash,.06);hurt2(c,30*dt)}}
+  A.puddles=A.puddles.filter(p=>p.t<4.5);
+
+  // creatures: wander until the player steps onto the sand, then close in
+  const hunted=P.y<FIELD.y1+1;
+  for(const c of A.creatures){
+    if(c.dead){c.dead-=dt;if(c.dead<=0)spawn(c);continue}
+    c.flash-=dt;c.cd-=dt;c.wt-=dt;
+    if(!hunted&&c.wt<=0){c.wt=2+crng()*4;c.wx=lerp(FIELD.x0+2,FIELD.x1-2,crng());c.wy=lerp(FIELD.y0+2,FIELD.y1-2,crng())}
+    const tx=hunted?P.x:c.wx,ty=hunted?P.y:c.wy,dx=tx-c.x,dy=ty-c.y,d=Math.hypot(dx,dy)||1,stop=hunted?c.r+R+.5:.5;
+    const sp=d>stop?(hunted?c.sp:c.sp*.4):0,f=Math.min(1,dt*4);
+    c.vx+=(dx/d*sp-c.vx)*f;c.vy+=(dy/d*sp-c.vy)*f;
+    c.x+=c.vx*dt;c.y+=c.vy*dt;
+    for(const o of A.creatures){if(o===c||o.dead)continue;const ex=c.x-o.x,ey=c.y-o.y,e=Math.hypot(ex,ey),m=c.r+o.r;
+      if(e<m&&e>1e-6){c.x+=ex/e*(m-e)*.5;c.y+=ey/e*(m-e)*.5}}
+    {const ex=c.x-P.x,ey=c.y-P.y,e=Math.hypot(ex,ey),m=c.r+R;if(e<m&&e>1e-6){c.x+=ex/e*(m-e);c.y+=ey/e*(m-e)}}
+    c.x=clamp(c.x,FIELD.x0+c.r,FIELD.x1-c.r);c.y=clamp(c.y,FIELD.y0+c.r,FIELD.y1-c.r);
+  }
+}
+function hurt2(c,d){c.hp-=d;if(c.hp<=0&&!c.dead){c.dead=2.5;A.kills++}}   // damage over time: no flinch
 
 // ---------------------------------------------------------------- simulation
 // Static colliders near where the player is about to be; collide() only tests these.
@@ -389,7 +526,7 @@ function collide(){
       }
     }
   }
-  if(P.z>-.5){const r=REGIONS[P.x<400?0:1];P.x=clamp(P.x,r.x0+R,r.x1-R);P.y=clamp(P.y,r.y0+R,r.y1-R)}
+  if(P.z>-.5){const r=REGIONS[regionAt(P.x)];P.x=clamp(P.x,r.x0+R,r.x1-R);P.y=clamp(P.y,r.y0+R,r.y1-R)}
 }
 function updateZ(){
   if(P.lift){if(!inRect(P.x,P.y,P.lift))P.lift=null;else{P.z=P.lift.z;return}}
@@ -454,6 +591,7 @@ function tick(dt){
     const m=Math.hypot(f,r)||1,sp=(keys.has('ShiftLeft')||keys.has('ShiftRight')?8.5:4)*dt/m,c=Math.cos(P.a),sn=Math.sin(P.a);
     wx=(f*c-r*sn)*sp;wy=(f*sn+r*c)*sp;
   }else{const k=DPR*view/Math.min(W,H);wx=input.dx*k;wy=input.dy*k}
+  let amx=0,amy=0;if(!input.override&&mouseCaptured()){amx=wx;amy=wy;wx=wy=0}
   input.dx=input.dy=0;
   const dist=Math.hypot(wx,wy);
   if(dist>1e-6){ // small steps so nothing is tunnelled through, whatever the speed
@@ -464,14 +602,18 @@ function tick(dt){
       if(Math.abs(P.x-bx)+Math.abs(P.y-by)<1e-5)break;   // pinned against something: the rest of the flick goes nowhere
     }
   }
+  if(!FP&&dist>.01)P.a+=angDiff(Math.atan2(wy,wx),P.a)*Math.min(1,dist*4);   // the pointer faces the way it last moved
   gather(P.x-1.5,P.y-1.5,P.x+1.5,P.y+1.5);
   if(!P.lift)pendingBtn=null;
   for(const l of LIFTS)updateLift(l,dt);
   updateMyDoor(dt);collide();updateZ();updateIndoor(dt);
+  updateArena(dt,amx,amy);
   // the camera trails the pointer a little but never lets it stray far from the centre
-  const f=1-Math.exp(-dt*9);CAM.x+=(P.x-CAM.x)*f;CAM.y+=(P.y-CAM.y)*f;
-  const ox=P.x-CAM.x,oy=P.y-CAM.y,o=Math.hypot(ox,oy),lim=view*.16;
-  if(o>lim){CAM.x=P.x-ox/o*lim;CAM.y=P.y-oy/o*lim}
+  // (a drawn bow pulls the camera towards the drag point; a missile takes it along)
+  const cap=mouseCaptured(),fx=cap?(A.missile?A.missile.x:P.x+A.bow.dx):P.x,fy=cap?(A.missile?A.missile.y:P.y+A.bow.dy):P.y;
+  const f=1-Math.exp(-dt*9);CAM.x+=(fx-CAM.x)*f;CAM.y+=(fy-CAM.y)*f;
+  const ox=fx-CAM.x,oy=fy-CAM.y,o=Math.hypot(ox,oy),lim=view*.16;
+  if(o>lim){CAM.x=fx-ox/o*lim;CAM.y=fy-oy/o*lim}
 }
 
 // ---------------------------------------------------------------- rendering
@@ -490,7 +632,7 @@ const C={road:'#4b4f57',walk:'#c8c5bc',curb:'#a9a69d',inner:'#aaa79e',grass:'#7f
 
 function drawOutdoor(g){
   g.fillStyle=C.road;g.fillRect(VB.x0,VB.y0,VB.x1-VB.x0,VB.y1-VB.y0);
-  if(VB.x0>350)drawHarborGround(g);else{
+  if(VB.x0>850)drawArenaGround(g);else if(VB.x0>350)drawHarborGround(g);else{
   // blocks
   const blocks=[[-90,-90,180,160],[100,-90,190,160],[-90,82,180,170],[100,82,190,170]];
   g.fillStyle=C.walk;for(const b of blocks)g.fillRect(...b);
@@ -546,6 +688,24 @@ function drawOutdoor(g){
   }
   g.fillStyle='#8c3f37';g.fillRect(66.8,66,2.4,1.5);text(g,'OFFICE',68,66.75,.48,'rgba(255,255,255,.75)');
   g.fillStyle='#3d5a80';g.fillRect(32.8,66,2.4,1.5);text(g,'APARTMENTS',34,66.75,.3,'rgba(255,255,255,.8)');
+}
+function drawArenaGround(g){
+  const x0=VB.x0-1,w=VB.x1-VB.x0+2,f=FIELD;
+  g.fillStyle='#c4bfb2';g.fillRect(x0,VB.y0-1,w,VB.y1-VB.y0+2);
+  g.strokeStyle='rgba(0,0,0,.07)';g.lineWidth=.06;g.beginPath();
+  for(let x=1052;x<=1168;x+=2){g.moveTo(x,74);g.lineTo(x,106)}for(let y=74;y<=106;y+=2){g.moveTo(1052,y);g.lineTo(1168,y)}g.stroke();
+  g.fillStyle='#d6c193';g.fillRect(1052,-8,116,82);                       // sand
+  g.strokeStyle='rgba(120,90,40,.16)';g.lineWidth=.25;for(const r of[8,18,28]){disc(g,1110,33,r);g.stroke()}
+  g.fillStyle='rgba(120,90,40,.08)';for(let i=0;i<220;i++){const q=mulberry32(i+7);g.fillRect(1053+q()*114,-7+q()*80,.6+q()*1.6,.15)}
+  g.strokeStyle='#2f3a33';g.lineWidth=.14;g.beginPath();for(const s of OUT.fence){g.moveTo(s[0],s[1]);g.lineTo(s[2],s[3])}g.stroke();
+  for(const p of WEAPONS){g.fillStyle='#3a3d44';disc(g,p.x,p.y,1.55);g.fill();g.fillStyle=p.c;disc(g,p.x,p.y,1.35);g.fill();
+    g.strokeStyle='rgba(255,255,255,.6)';g.lineWidth=.08;disc(g,p.x,p.y,1.05);g.stroke();
+    text(g,p.name.toUpperCase(),p.x,p.y+2.3,.55,'rgba(40,44,52,.8)')}
+  text(g,'WEAPONS  ·  step on a pad',1111,78.2,.6,'rgba(40,44,52,.6)');
+  text(g,'ARENA',1110,33,6,'rgba(120,90,40,.14)');
+  g.fillStyle='#2a2d33';disc(g,1108.6,90.8,.12);g.fill();
+  g.fillStyle='#1f5fb5';disc(g,1108.6,90.2,.75);g.fill();text(g,'M',1108.6,90.25,1,'#fff');
+  text(g,'SUBWAY',1111.5,90.6,.7,'rgba(40,44,52,.75)');
 }
 function drawHarborGround(g){
   const x0=VB.x0-1,w=VB.x1-VB.x0+2;
@@ -631,11 +791,15 @@ function drawConcourse(g){
     g.restore();
   }
 }
+// What a platform sign says about a train: where it goes next from here, and when it gets here.
 function trainSign(tr,si){
-  const to='to '+STATIONS[1-si].name+'  ·  ';
-  if(tr.phase!=='run'&&tr.st===si)return to+'boarding';
-  const s=tr.phase==='run'?(tr.to===si?(1-tr.u)*TRUN:(1-tr.u)*TRUN+TDWELL+1+TRUN):Math.max(0,TDWELL-tr.t)+1+TRUN;
-  return to+Math.ceil(s)+' s';
+  let st=tr.st,dir=tr.dir,s=0;
+  const next=()=>{if(!STATIONS[st+dir])dir=-dir;st+=dir};
+  if(tr.phase==='run'){st=tr.to;s=(1-tr.u)*TRUN}
+  else if(st!==si){s=Math.max(0,TDWELL-tr.t)+1;next();s+=TRUN}
+  for(let n=0;n<6&&st!==si;n++){s+=TDWELL+1+TRUN;next()}
+  const dest=STATIONS[STATIONS[st+dir]?st+dir:st-dir].name;
+  return'to '+dest+'  ·  '+(s<.01?'boarding':Math.ceil(s)+' s');
 }
 function drawPlatform(g){
   const F=FL[-2],p=PLAT,x0=VB.x0-1,w=VB.x1-VB.x0+2;
@@ -805,6 +969,7 @@ const CANOPIES=[];
   const subHole=dx=>({x:dx+110,y:92,w:3,h:10});
   OUTG.add(slab({x:-90,y:-90,w:380,h:340},[subHole(0)],0,art(-90,-90,380,340,9,drawOutdoor)));
   OUTG.add(slab({x:500,y:20,w:240,h:130},[subHole(LINE_D)],0,art(500,20,240,130,9,drawOutdoor)));
+  OUTG.add(slab({x:1000,y:-60,w:220,h:220},[subHole(2*LINE_D)],0,art(1000,-60,220,220,9,drawOutdoor)));
   const mb=new MB(),gl=new MB(),hr=mulberry32(5);
   const FAC=['#b9a996','#a7b0b8','#c2b8a3','#9aa3ad','#c9bca8','#a5aa9f','#b39c8f'];
   for(const b of OUT.roofs){
@@ -890,13 +1055,14 @@ for(const st of STATIONS){
 { // running tunnels between and beyond the stations
   const a=art(280,103.3,7,3.5,32,drawPlatform);a.tex.wrapS=THREE.RepeatWrapping;
   const RH=LH-.35;   // rock stops at the tunnel ceiling, safely below the concourse floor that overlaps it in plan
-  const mb=new MB(),glow=new MB(),y=Y(-2),gaps=[[-150,96],[194,596],[694,900]];
+  const mb=new MB(),glow=new MB(),y=Y(-2),X1=STATIONS[STATIONS.length-1].dx+400,gaps=[];
+  {let c=-150;for(const st of STATIONS){gaps.push([c,st.dx+96]);c=st.dx+194}gaps.push([c,X1])}
   for(const[x0,x1]of gaps)for(const ty of[103.3,120.2]){
     const m=slab({x:x0,y:ty,w:x1-x0,h:3.5},[],y,{mat:a.mat,uv:(wx,wy)=>[wx/7,1-(wy-ty)/3.5]});TUNNEL.add(m);
     fpAdd(TUNNEL,slab({x:x0,y:ty,w:x1-x0,h:3.5},[],Y(-1)-.35,CEIL))}
   for(const[x0,x1]of gaps)mb.box(x0,106.8,x1-x0,13.4,y,y+RH,'#2a2c31','#0f1013');
-  mb.box(-150,101.3,1050,2,y,y+RH,'#2a2c31','#0f1013');mb.box(-150,123.7,1050,2,y,y+RH,'#2a2c31','#0f1013');
-  for(let x=-150;x<900;x+=10){glow.box(x,103.3,.7,.1,y+2,y+2.25,'#ffe9a8');glow.box(x,123.6,.7,.1,y+2,y+2.25,'#ffe9a8')}
+  mb.box(-150,101.3,X1+150,2,y,y+RH,'#2a2c31','#0f1013');mb.box(-150,123.7,X1+150,2,y,y+RH,'#2a2c31','#0f1013');
+  for(let x=-150;x<X1;x+=10){glow.box(x,103.3,.7,.1,y+2,y+2.25,'#ffe9a8');glow.box(x,123.6,.7,.1,y+2,y+2.25,'#ffe9a8')}
   TUNNEL.add(mb.mesh(),glow.mesh(GLOW));
 }
 for(const tr of TRAINS){
@@ -910,6 +1076,53 @@ for(const tr of TRAINS){
   g.add(mb.mesh());tr.g=g;tr.ps=p.ps;scene.add(g);
   {const rf=new MB();rf.box(0,p.y,TL,TW,y+2.1,y+2.2,tr.col);fpAdd(g,rf.mesh())}
   tr.doors=TDOORS.map(()=>[dynBox(g,'#e9ecef'),dynBox(g,'#e9ecef')]);
+}
+
+// ---- arena: creatures and weapons (all dynamic)
+const ARG=new THREE.Group();OUTG.add(ARG);
+const ICO=new THREE.IcosahedronGeometry(1,1),DISC=new THREE.CylinderGeometry(1,1,1,16);
+function stick(m,x1,z1,x2,z2,y,th){const dx=x2-x1,dz=z2-z1,L=Math.hypot(dx,dz);m.visible=L>.01;
+  m.position.set((x1+x2)/2,y,(z1+z2)/2);m.scale.set(Math.max(L,.001),th,th);m.rotation.y=-Math.atan2(dz,dx)}
+const pool=(n,mk)=>Array.from({length:n},()=>{const m=mk();m.visible=false;ARG.add(m);return m});
+const lam=c=>new THREE.MeshLambertMaterial({color:c}),bas=(c,o)=>new THREE.MeshBasicMaterial({color:c,transparent:o!==undefined,opacity:o===undefined?1:o,depthWrite:o===undefined});
+const AV={
+  body:A.creatures.map(()=>{const m=new THREE.Mesh(ICO,new THREE.MeshLambertMaterial({flatShading:true}));ARG.add(m);return m}),
+  bar:pool(A.creatures.length,()=>new THREE.Mesh(UNIT,bas('#e5484d'))),
+  arrow:pool(12,()=>new THREE.Mesh(UNIT,lam('#6b4a32'))),
+  pud:pool(60,()=>new THREE.Mesh(DISC,lam('#3b2f25'))),
+  rope:pool(100,()=>new THREE.Mesh(UNIT,lam('#b08a4f'))),
+  line:pool(4,()=>new THREE.Mesh(UNIT,lam('#e9e4d6'))),          // bow string / aim, chain, sword blade, sword guard
+  dot:pool(1,()=>new THREE.Mesh(DISC,bas('#ffffff',.7)))[0],
+  ball:pool(1,()=>new THREE.Mesh(new THREE.IcosahedronGeometry(1,0),new THREE.MeshLambertMaterial({color:'#3a3d44',flatShading:true})))[0],
+  missile:pool(1,()=>new THREE.Mesh(UNIT,lam('#6f8f3c')))[0],
+  blast:pool(1,()=>new THREE.Mesh(ICO,bas('#ffb347',.6)))[0],
+  fuel:lam('#3b2f25'),flame:bas('#ff8a2a'),
+};
+function arenaSync(){
+  ARG.visible=regionAt(P.x)===2;if(!ARG.visible)return;
+  A.creatures.forEach((c,i)=>{const m=AV.body[i],b=AV.bar[i];m.visible=!c.dead;b.visible=!c.dead&&c.hp<c.max;
+    if(c.dead)return;
+    const sq=1+Math.sin(time*6+i)*.05;m.position.set(c.x,c.r*.8,c.y);m.scale.set(c.r*sq,c.r*.8/sq,c.r*sq);m.rotation.y=Math.atan2(-c.vy,c.vx);
+    m.material.color.set(c.col);m.material.emissive.setScalar(c.flash>0?.7:0);
+    const w=1.4*c.hp/c.max;b.position.set(c.x-(1.4-w)/2,c.r*1.7+.5,c.y-c.r-.2);b.scale.set(Math.max(w,.01),.12,.16)});
+  AV.arrow.forEach((m,i)=>{const a=A.arrows[i];if(!a){m.visible=false;return}const s=Math.hypot(a.vx,a.vy);stick(m,a.x-a.vx/s*1.1,a.y-a.vy/s*1.1,a.x,a.y,1,.07)});
+  AV.pud.forEach((m,i)=>{const p=A.puddles[i];m.visible=!!p;if(!p)return;const on=p.t>1;m.material=on?AV.flame:AV.fuel;
+    const h=on?.5+.45*Math.sin(time*17+i*2.1):.04,r=on?1.25:Math.min(1.1,.4+p.t);m.position.set(p.x,h/2+.02,p.y);m.scale.set(r,h,r)});
+  const l=A.lasso,pts=l?[...l.pts,{x:P.x,y:P.y}]:[];
+  AV.rope.forEach((m,i)=>{if(i<pts.length-1&&i<99){stick(m,pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y,.25,l.flash?.3:.1);m.material.emissive.setScalar(l.flash?1:0)}else m.visible=false});
+  for(const m of AV.line)m.visible=false;AV.dot.visible=AV.ball.visible=false;
+  const id=A.cur&&A.cur.id;
+  if(id==='bow'&&A.bow){const b=A.bow;
+    stick(AV.line[0],P.x,P.y,P.x+b.px,P.y+b.py,1,.09);                                   // the pull
+    stick(AV.line[1],P.x,P.y,P.x-b.px*2.5,P.y-b.py*2.5,1,.04);                            // where it will go
+    AV.dot.visible=true;AV.dot.position.set(P.x+b.dx,.9,P.y+b.dy);AV.dot.scale.set(.3,.05,.3)}
+  if(id==='ball'&&A.ball){const b=A.ball;stick(AV.line[0],P.x,P.y,b.x,b.y,.6,.08);
+    AV.ball.visible=true;AV.ball.position.set(b.x,.6,b.y);AV.ball.scale.setScalar(.5);AV.ball.rotation.y+=.2}
+  if(id==='sword'){const c=Math.cos(P.a),s=Math.sin(P.a);stick(AV.line[0],P.x+c*.35,P.y+s*.35,P.x+c*2.1,P.y+s*2.1,1,.1);
+    stick(AV.line[1],P.x+c*.45+s*.3,P.y+s*.45-c*.3,P.x+c*.45-s*.3,P.y+s*.45+c*.3,1,.12)}
+  const ms=A.missile;AV.missile.visible=!!ms;
+  if(ms){stick(AV.missile,ms.x-Math.cos(ms.a)*.6,ms.y-Math.sin(ms.a)*.6,ms.x+Math.cos(ms.a)*.6,ms.y+Math.sin(ms.a)*.6,1.2,.3)}
+  const bl=A.blast;AV.blast.visible=!!bl;if(bl){AV.blast.position.set(bl.x,1,bl.y);AV.blast.scale.setScalar(.5+bl.t/.45*4.2);AV.blast.material.opacity=.7*(1-bl.t/.45)}
 }
 
 // ---- what to show
@@ -951,6 +1164,7 @@ function render(){
     tr.doors.forEach((pr,i)=>{const x=TDOORS[i];setBox(pr[0],x,tr.ps+.02,hw,.11,y,y+2.1);setBox(pr[1],x+TDW-hw,tr.ps+.02,hw,.11,y,y+2.1)})}
   STATIONS.forEach((st,si)=>{for(let k=0;k<2;k++){const hw=TDW/2*(1-dockedDoor(si,k)*.92),y=Y(-2);
     st.doors[k].forEach((pr,i)=>{const x=st.dx+DOCK+TDOORS[i];setBox(pr[0],x,EDGEY[k]+.03,hw,.14,y,y+2.1);setBox(pr[1],x+TDW-hw,EDGEY[k]+.03,hw,.14,y,y+2.1)})}});
+  arenaSync();
   if(P.z<-1.5&&time-signT>1){signT=time;for(const st of STATIONS)st.art.paint()}     // platform countdown signs
   if(P.z>-.9)for(const c of CANOPIES){const t=c.t,a=FP?1:lerp(.22,1,clamp((Math.hypot(P.x-t.x,P.y-t.y)-t.r+.4)/1.6));   // canopies fade when the pointer is under them
     const mt=c.m.material,tr=a<.995;mt.opacity=a;
@@ -993,10 +1207,11 @@ const locEl=document.getElementById('loc'),elevEl=document.getElementById('elev'
 function locName(){
   if(P.lift){const l=P.lift;return'Lift · '+(l.moving?(l.target>l.z?'going up':'going down')+' · '+(Math.round(l.z)+1):'Floor '+(Math.round(l.z)+1))}
   if(P.train)return'Train · '+(P.train.phase==='run'?'to '+STATIONS[P.train.to].name:'at '+STATIONS[P.train.st].name);
-  const sn=STATIONS[P.x<400?0:1].name;
+  const ri=regionAt(P.x),sn=STATIONS[ri].name;
   if(P.z<-1.5)return sn+' Station · Platform';if(P.z<-.5)return sn+' Station · Concourse';
   if(P.z<-.01)return sn+' Station entrance';
-  if(P.x>400)return P.y<60?'Harbor Pier':P.y<72?'Harbor Quay':'Harbor Square';
+  if(ri===2)return'Arena'+(A.cur?' · '+A.cur.name:'');
+  if(ri===1)return P.y<60?'Harbor Pier':P.y<72?'Harbor Quay':'Harbor Square';
   if(inRect(P.x,P.y,OFFICE))return'Office · '+(P.z%1?'Stairs':'Floor '+(Math.round(P.z)+1));
   if(inRect(P.x,P.y,TOWER)){
     if(P.z%1)return'Apartments · Stairs';
@@ -1007,7 +1222,12 @@ function locName(){
   if(inRect(P.x,P.y,PARK))return'Park';if(inRect(P.x,P.y,PLAZA))return'Station Plaza';
   if(P.y>=66&&P.y<=86)return'Main Avenue';if(P.x>=86&&P.x<=104)return'Cross Street';return'Back alley';
 }
+const wpEl=document.getElementById('wp');let lastWp='';
 function updateHud(){
+  const wp=regionAt(P.x)!==2||P.z!==0?'':FP?'Weapons work in top-down view (F)':
+    !A.cur?'Step on a pad to take a weapon  ·  kills '+A.kills:
+    A.cur.name+': '+A.cur.help+(A.cur.id==='fire'?'  ·  fuel '+Math.round(A.fuel*100)+'%':'')+'  ·  kills '+A.kills;
+  if(wp!==lastWp){lastWp=wp;wpEl.textContent=wp;wpEl.style.display=wp?'block':'none'}
   const l=locName();if(l!==lastLoc){lastLoc=l;locEl.textContent=l}
   if(P.lift!==hudLift){ // (re)build the floor buttons for whichever lift we are in
     hudLift=P.lift;elevEl.innerHTML='';
@@ -1039,13 +1259,15 @@ addEventListener('keydown',e=>{
 addEventListener('wheel',e=>{liftStep(e.deltaY<0?1:-1);e.preventDefault()},{passive:false});
 let finger=null;
 cv.addEventListener('pointerdown',e=>{
-  if(e.pointerType==='mouse'){if(!locked()){const r=cv.requestPointerLock({unadjustedMovement:true});if(r&&r.catch)r.catch(()=>cv.requestPointerLock())}}
+  if(e.pointerType==='mouse'){if(!locked()){const r=cv.requestPointerLock({unadjustedMovement:true});if(r&&r.catch)r.catch(()=>cv.requestPointerLock())}
+    else if(e.button===0){A.down=true;A.click=true}}
   else if(!finger){finger={id:e.pointerId,x:e.clientX,y:e.clientY};hintEl.style.opacity=0;try{cv.setPointerCapture(e.pointerId)}catch(_){}}
   e.preventDefault()});
 cv.addEventListener('pointermove',e=>{
   if(e.pointerType==='mouse'){if(locked()){input.dx+=e.movementX;input.dy+=e.movementY}}
   else if(finger&&e.pointerId===finger.id){input.dx+=e.clientX-finger.x;input.dy+=e.clientY-finger.y;finger.x=e.clientX;finger.y=e.clientY}});
 const endFinger=e=>{if(finger&&e.pointerId===finger.id)finger=null};
+addEventListener('pointerup',e=>{if(e.pointerType==='mouse'&&e.button===0)A.down=false});
 cv.addEventListener('pointerup',endFinger);cv.addEventListener('pointercancel',endFinger);
 addEventListener('contextmenu',e=>e.preventDefault());
 document.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
@@ -1055,7 +1277,7 @@ elevEl.addEventListener('pointerdown',e=>{e.preventDefault();const f=e.target.da
 let last=performance.now();
 function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;tick(dt);render();requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
-window.G={P,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
+window.G={P,A,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
 </script>
 </body>
 </html>
