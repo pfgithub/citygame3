@@ -79,6 +79,7 @@ function addStair(x,y,w,h,dir,zl,zh){
   // are not drawn: from on the stairs they would look like a wall across the exit.
   box(...ends[dir],zl-.5,zl+.5,true,0);        // top end, for whoever is on the lower level
   box(...ends[opp[dir]],zh-.5,zh+.5,true,0);   // bottom end, for whoever is on the upper level
+  s.rail=ends[opp[dir]];
   return s;
 }
 function stairT(s,px,py){switch(s.dir){
@@ -777,6 +778,8 @@ function stairMeshes(s){
     else if(s.dir==='E')lo.box(s.x+a,s.y,b-a,s.h,y0,top,'#8f8b82','#cbc7bd');
     else lo.box(s.x+s.w-b,s.y,b-a,s.h,y0,top,'#8f8b82','#cbc7bd')}
   for(const w of s.sides){lo.box(w.x,w.y,w.w,w.h,y0,y0+WALL_H,WALLS,WTOP);hi.box(w.x,w.y,w.w,w.h,y0+WALL_H,Y(s.zh)+(s.owner?WALL_H:1.05),WALLS,WTOP)}
+  // railing across the open end of the stairwell on the upper floor, so the drop is visibly fenced off
+  {const[x,z,w,d]=s.rail;hi.box(x,z,w,d,Y(s.zh),Y(s.zh)+1.05,WALLS,WTOP)}
   s.low=lo.mesh();s.high=hi.mesh();scene.add(s.low,s.high);
 }
 
@@ -902,7 +905,7 @@ function applyView(v){
 function views(){
   const z=P.z;
   if(P.lift)return[{k:Math.round(z),b:P.lift.owner},{lift:P.lift},1-P.lift.door];
-  const s=STAIRS.find(s=>z>s.zl&&z<s.zh);
+  const s=STAIRS.find(s=>z>s.zl&&z<s.zh&&inRect(P.x,P.y,s));   // the flight the player is actually on
   if(s)return[{k:s.zl,b:s.owner},{k:s.zh,b:s.owner},(z-s.zl)/(s.zh-s.zl)];
   const L=Math.round(z);
   if(L<0)return[{k:L,b:null},null,0];
