@@ -241,7 +241,7 @@ function stepTrains(T,dt,blocked){
 function updateTrains(dt){
   const under=Math.abs(P.z+2)<.01;
   const on=under?TRAINS.find(tr=>P.x>tr.x&&P.x<tr.x+TL&&P.y>tr.y&&P.y<tr.y+TW):null,ox=on&&on.x,oy=on&&on.y;
-  stepTrains(TRAINS,dt,tr=>under&&Math.abs(P.y-(STOPS[tr.i].k?120.175:106.825))<R+.23&&P.x>tr.x-R&&P.x<tr.x+TL+R);   // doors never close on the player
+  stepTrains(TRAINS,dt,tr=>under&&Math.abs(P.y-(STOPS[tr.i].k?120.175:106.825))<R+.23&&TDOORS.some(o=>P.x>tr.x+o-R&&P.x<tr.x+o+TDW+R));   // doors never close on the player (someone sat beside one is not in the way)
   P.train=on||null;
   if(on){const dx=on.x-ox,dy=on.y-oy;P.x+=dx;P.y+=dy;CAM.x+=dx;CAM.y+=dy}   // riders are carried along, and so is the camera
 }
@@ -417,15 +417,22 @@ CAR.owner=BUILDINGS[0];TLIFT.owner=BUILDINGS[1];
 // Seats you can sit on in first person: the loose chairs around desks and tables.
 const CHAIRS=[];
 for(let z=0;z<=TTOP;z++)for(const f of FL[z].furn)if(f.r!==undefined&&f.ghost&&(f.color==='#3b4350'||f.color==='#b5563f'))CHAIRS.push({x:f.cx,y:f.cy,z});
-// Benches (park, plazas, quay, stations) are long seats: you sit wherever along them you back in.
+// Long seats: benches (park, plazas, quay, stations), sofas, the bed, and the seating in the
+// trains. You sit wherever along them you back in, and can shuffle along once seated.
 const BENCHES=[...OUT.benches.map(b=>({...b,z:0}))];
-for(const z of[-1,-2])for(const f of FL[z].furn)if(f.color==='#7a6248')BENCHES.push({x:f.x,y:f.y,w:f.w,h:f.h,z});
+for(let z=-2;z<=TTOP;z++)for(const f of FL[z].furn)if(f.r===undefined&&!f.ghost&&(f.color==='#7a6248'||f.color==='#5d6f86'||f.color==='#e8e2d6'))BENCHES.push({x:f.x,y:f.y,w:f.w,h:f.h,z});
+const TSEATS=[];for(let i=0;i<4;i++)for(const[a,b]of[[.8,3.9],[5.8,9],[10.9,14],[15.9,17.7]])for(const sy of[.15,TW-.6])TSEATS.push({x:i*TL/4+a,y:sy,w:b-a,h:.45,loose:true});
+// A seat is either a spot (chair) or a stretch: `p` along its length, `q` across, in the frame
+// of the train it belongs to if any.
+const seatXY=st=>st.horiz===undefined?st:{x:(st.tr?st.tr.x:0)+(st.horiz?st.p:st.q),y:(st.tr?st.tr.y:0)+(st.horiz?st.q:st.p)};
 function seatBehind(){
   const c=Math.cos(P.a),sn=Math.sin(P.a),behind=(x,y,reach)=>{const dx=x-P.x,dy=y-P.y,d=Math.hypot(dx,dy);return d<reach&&dx*c+dy*sn<-.45*d};
-  const ch=CHAIRS.find(q=>q.z===P.z&&behind(q.x,q.y,.62));if(ch)return ch;
-  for(const b of BENCHES){if(b.z!==P.z)continue;
-    const x=b.w>b.h?clamp(P.x,b.x+.3,b.x+b.w-.3):b.x+b.w/2,y=b.w>b.h?b.y+b.h/2:clamp(P.y,b.y+.3,b.y+b.h-.3);
-    if(behind(x,y,.75))return{x,y,bench:true}}
+  const ch=CHAIRS.find(q=>q.z===P.z&&behind(q.x,q.y,.62));if(ch)return{x:ch.x,y:ch.y,out:0};
+  const stretch=(r,tr)=>{const ox=tr?tr.x:0,oy=tr?tr.y:0,horiz=r.w>r.h,half=Math.min(r.w,r.h)/2,e=Math.min(.3,Math.max(r.w,r.h)/2);
+    const min=(horiz?r.x:r.y)+e,max=(horiz?r.x+r.w:r.y+r.h)-e,p=clamp(horiz?P.x-ox:P.y-oy,min,max),q=horiz?r.y+r.h/2:r.x+r.w/2;
+    return behind(ox+(horiz?p:q),oy+(horiz?q:p),half+R+.25)?{p,q,horiz,min,max,tr,out:r.loose?.45:half+R+.07}:null};
+  for(const b of BENCHES)if(b.z===P.z){const st=stretch(b,null);if(st)return st}
+  if(P.train)for(const r of TSEATS){const st=stretch(r,P.train);if(st)return st}
   return null;
 }
 
@@ -757,27 +764,33 @@ function updateLift(l,dt){
 // walk up. In first person you work it by hand: click the handle and drag down to turn it, then
 // drag sideways to swing the door.
 const DOOR_SWING=1.75,HANDLE=.84;
-function handlePos(){const d=MYDOOR,a=d.open*DOOR_SWING;return{x:d.x+Math.cos(a)*HANDLE,y:d.y+.1+Math.sin(a)*HANDLE,h:Y(d.z)+1.03}}
-function aimingAtHandle(){
-  if(!FP||Math.abs(P.z-MYDOOR.z)>.01)return false;
-  const q=handlePos(),dx=q.x-P.x,dy=q.h-(Y(P.z)+eyeH),dz=q.y-P.y,dist=Math.hypot(dx,dy,dz);if(dist>2.4)return false;
-  const cp=Math.cos(pitch);return(dx*Math.cos(P.a)*cp+dy*Math.sin(pitch)+dz*Math.sin(P.a)*cp)/dist>.985;
+// Is the crosshair on the door leaf (wherever it has swung to), within arm's reach?
+function aimingAtDoor(){
+  const d=MYDOOR;if(!FP||Math.abs(P.z-d.z)>.01)return false;
+  const a=d.open*DOOR_SWING,ux=Math.cos(a),uy=Math.sin(a),dx=Math.cos(P.a),dy=Math.sin(P.a),hx=d.x-P.x,hy=d.y+.1-P.y,den=dx*uy-dy*ux;
+  if(Math.abs(den)<1e-6)return false;
+  const t=(hx*uy-hy*ux)/den,sAlong=(hx*dy-hy*dx)/den;                     // along the gaze, along the door
+  if(t<.05||t>2.6||sAlong<0||sAlong>d.w)return false;
+  const hgt=eyeH+t*Math.tan(pitch);return hgt>0&&hgt<2.1;
 }
+// While the door is held: up/down works the lever, sideways leans on the door. The lever has
+// to be down to unlatch a shut door; once it is ajar the lever no longer matters.
 function doorMouse(dx,dy){
   const d=MYDOOR,side=P.y<d.y+.1?1:-1;                 // from inside the flat the door comes towards you instead
-  if(d.open<=0)d.h=clamp(d.h+dy*.006,0,1);
-  if(d.h>=1)d.v+=clamp(dx*.004,-.05,.05)*side;       // a heavy door: the hand can only lean on it, speed has to build
+  d.h=clamp(d.h+dy*.006,0,1);
+  if(d.open>0||d.h>=.85)d.v+=clamp(dx*.004,-.05,.05)*side;       // a heavy door: the hand can only lean on it, speed has to build
 }
 function updateMyDoor(dt){
   const d=MYDOOR;
   if(!FP){d.grab=false;
     const near=Math.abs(P.z-d.z)<.01&&Math.hypot(P.x-(d.x+.5),P.y-(d.y+.1))<1.5;
-    d.open=near?Math.min(1,d.open+dt/.35):Math.max(0,d.open-dt/.35);d.h=d.open>0?1:0;d.v=0;return}
+    d.open=near?Math.min(1,d.open+dt/.35):Math.max(0,d.open-dt/.35);d.h=0;d.v=0;return}
   if(d.grab){if(!A.down)d.grab=false}
-  else if(A.click&&aimingAtHandle())d.grab=true;
+  else if(A.click&&aimingAtDoor())d.grab=true;
+  if(!d.grab)d.h=Math.max(0,d.h-dt*6);                              // let go and the lever springs back up
   d.open+=d.v*dt;d.v*=Math.exp(-dt*1.6);                            // it keeps swinging after you let go, and slows on its hinges
   if(d.open<=0){d.open=0;if(d.v<0)d.v=0}else if(d.open>=1){d.open=1;if(d.v>0)d.v=0}
-  if(!d.grab&&d.open<.03&&d.v<=0){d.open=0;d.h=Math.max(0,d.h-dt*5)} // let go of a shut door and the handle springs back
+  if(!d.grab&&d.open<.03&&d.v<=0)d.open=0;                          // nearly shut and not held: it clicks to
 }
 function updateIndoor(dt){
   // Everything here is a function of where the player stands, not of time.
@@ -800,8 +813,11 @@ function tick(dt){
     else{P.a+=input.dx*.0024;pitch=clamp(pitch-input.dy*.0024,-1.45,1.45)}
     let f=0,r=0;if(keys.has('KeyW'))f+=1;if(keys.has('KeyS'))f-=1;if(keys.has('KeyD'))r+=1;if(keys.has('KeyA'))r-=1;
     if(P.sit){ // seated: settle onto the chair; walking forward stands you up
-      if(f>0){if(P.sit.bench){P.x+=Math.cos(P.a)*.62;P.y+=Math.sin(P.a)*.62}P.sit=null}   // step clear of the bench as you get up
-      else{const k=Math.min(1,dt*10);P.x+=(P.sit.x-P.x)*k;P.y+=(P.sit.y-P.y)*k;f=r=0}
+      const st=P.sit,c=Math.cos(P.a),sn=Math.sin(P.a);
+      if(f>0){P.x+=c*st.out;P.y+=sn*st.out;P.sit=null}   // step clear of the seat as you get up
+      else{
+        if(r&&st.horiz!==undefined)st.p=clamp(st.p+Math.sign(st.horiz?-sn:c)*r*1.3*dt,st.min,st.max);   // A/D shuffle along a bench
+        const q=seatXY(st),k=Math.min(1,dt*10);P.x+=(q.x-P.x)*k;P.y+=(q.y-P.y)*k;f=r=0}
     }else if(f<0&&r===0){ // backing into a chair you are facing away from sits you down
       P.sit=seatBehind();
     }
@@ -1497,8 +1513,8 @@ const wpEl=document.getElementById('wp'),hpEl=document.getElementById('hp');let 
 function updateHud(){
   const fight=regionAt(P.x)===2&&P.z===0&&!FP;
   hpEl.style.display=fight?'block':'none';if(fight)hpEl.firstChild.style.width=Math.max(0,A.hp)+'%';
-  const fpTip=!FP?'':P.sit?'Sitting  ·  walk forward to stand up':MYDOOR.grab?(MYDOOR.h<1?'drag down to turn the handle':'drag sideways to swing the door'):
-    aimingAtHandle()?'Door handle  ·  hold click and drag down, then sideways':'';
+  const fpTip=!FP?'':P.sit?(P.sit.horiz===undefined?'Sitting  ·  walk forward to stand up':'Sitting  ·  A / D to shuffle along, walk forward to stand up'):MYDOOR.grab?(MYDOOR.open<=0&&MYDOOR.h<.85?'drag down to unlatch':'drag sideways to swing the door'):
+    aimingAtDoor()?(MYDOOR.open>0?'Door  ·  hold click and drag sideways':'Door  ·  hold click, drag down to unlatch, then sideways'):'';
   const wp=fpTip?fpTip:regionAt(P.x)!==2||P.z!==0?'':FP?'Weapons work in top-down view (F)':A.msg>0?'You were knocked out  ·  back outside the gate':
     !A.cur?'Step on a pad to take a weapon  ·  kills '+A.kills:
     A.cur.name+': '+A.cur.help+(A.cur.id==='fire'?'  ·  fuel '+Math.round(A.fuel*100)+'%':'')+'  ·  kills '+A.kills;
