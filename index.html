@@ -883,18 +883,19 @@ for(const st of STATIONS){
   levelParts(st.g2,-2,zone);
   const gl=new MB();for(const r of st.screens)gl.box(r.x,r.y+.04,r.w,r.h-.08,Y(-2),Y(-2)+2.1,'#96cde6','#96cde6');
   st.g2.add(gl.mesh(GLASS));
-  fpAdd(scene,slab({x:dx+CONC.x-.3,y:CONC.y-.3,w:CONC.w+.6,h:CONC.h+.6},[],Y(0)-.06,CEIL));
-  fpAdd(scene,slab({x:dx+96,y:103.3,w:98,h:20.4},[{x:dx+128,y:112,w:10,h:3}],Y(-1)-.06,CEIL));
+  fpAdd(scene,slab({x:dx+CONC.x-.3,y:CONC.y-.3,w:CONC.w+.6,h:CONC.h+.6},[],Y(0)-.3,CEIL));
+  fpAdd(scene,slab({x:dx+96,y:103.3,w:98,h:20.4},[{x:dx+128,y:112,w:10,h:3}],Y(-1)-.35,CEIL));   // well clear of the concourse floor above, or the two flicker
   st.doors=[0,1].map(()=>TDOORS.map(()=>[dynBox(st.g2,'#eef0f2'),dynBox(st.g2,'#eef0f2')]));
 }
 { // running tunnels between and beyond the stations
   const a=art(280,103.3,7,3.5,32,drawPlatform);a.tex.wrapS=THREE.RepeatWrapping;
+  const RH=LH-.35;   // rock stops at the tunnel ceiling, safely below the concourse floor that overlaps it in plan
   const mb=new MB(),glow=new MB(),y=Y(-2),gaps=[[-150,96],[194,596],[694,900]];
   for(const[x0,x1]of gaps)for(const ty of[103.3,120.2]){
     const m=slab({x:x0,y:ty,w:x1-x0,h:3.5},[],y,{mat:a.mat,uv:(wx,wy)=>[wx/7,1-(wy-ty)/3.5]});TUNNEL.add(m);
-    fpAdd(TUNNEL,slab({x:x0,y:ty,w:x1-x0,h:3.5},[],Y(-1)-.06,CEIL))}
-  for(const[x0,x1]of gaps)mb.box(x0,106.8,x1-x0,13.4,y,y+LH,'#2a2c31','#0f1013');
-  mb.box(-150,101.3,1050,2,y,y+LH,'#2a2c31','#0f1013');mb.box(-150,123.7,1050,2,y,y+LH,'#2a2c31','#0f1013');
+    fpAdd(TUNNEL,slab({x:x0,y:ty,w:x1-x0,h:3.5},[],Y(-1)-.35,CEIL))}
+  for(const[x0,x1]of gaps)mb.box(x0,106.8,x1-x0,13.4,y,y+RH,'#2a2c31','#0f1013');
+  mb.box(-150,101.3,1050,2,y,y+RH,'#2a2c31','#0f1013');mb.box(-150,123.7,1050,2,y,y+RH,'#2a2c31','#0f1013');
   for(let x=-150;x<900;x+=10){glow.box(x,103.3,.7,.1,y+2,y+2.25,'#ffe9a8');glow.box(x,123.6,.7,.1,y+2,y+2.25,'#ffe9a8')}
   TUNNEL.add(mb.mesh(),glow.mesh(GLOW));
 }
@@ -952,9 +953,10 @@ function render(){
     st.doors[k].forEach((pr,i)=>{const x=st.dx+DOCK+TDOORS[i];setBox(pr[0],x,EDGEY[k]+.03,hw,.14,y,y+2.1);setBox(pr[1],x+TDW-hw,EDGEY[k]+.03,hw,.14,y,y+2.1)})}});
   if(P.z<-1.5&&time-signT>1){signT=time;for(const st of STATIONS)st.art.paint()}     // platform countdown signs
   if(P.z>-.9)for(const c of CANOPIES){const t=c.t,a=FP?1:lerp(.22,1,clamp((Math.hypot(P.x-t.x,P.y-t.y)-t.r+.4)/1.6));   // canopies fade when the pointer is under them
-    c.m.material.opacity=a;c.m.material.transparent=a<.995;c.m.material.depthWrite=a>=.995}
+    const mt=c.m.material,tr=a<.995;mt.opacity=a;
+    if(mt.transparent!==tr){mt.transparent=tr;mt.depthWrite=!tr;mt.needsUpdate=true}}   // three bakes "opaque" into the shader, so a switch needs a rebuild
   for(const m of FPONLY)m.visible=FP;
-  scene.background=FP&&P.z>-.5?SKY:NIGHT;
+  scene.background=FP?SKY:NIGHT;   // underground is fully roofed over, so the sky only shows up the entrance stairs
   if(FP){ // everything exists at once, seen from eye height
     OUTG.visible=TUNNEL.visible=true;
     for(const b of BUILDINGS){b.ext.visible=false;for(const g of b.levels)g.visible=true}
@@ -963,7 +965,7 @@ function render(){
     for(const st of STATIONS)st.g1.visible=st.g2.visible=true;
     for(const tr of TRAINS)tr.g.visible=true;
     const ey=Y(P.z)+1.65,cp=Math.cos(pitch);
-    camera.aspect=W/H;camera.fov=72;camera.near=.08;camera.far=700;camera.up.set(0,1,0);
+    camera.aspect=W/H;camera.fov=72;camera.near=.12;camera.far=500;camera.up.set(0,1,0);
     camera.position.set(P.x,ey,P.y);camera.lookAt(P.x+Math.cos(P.a)*cp,ey+Math.sin(pitch),P.y+Math.sin(P.a)*cp);camera.updateProjectionMatrix();
     renderer.setRenderTarget(null);renderer.render(scene,camera);updateHud();return;
   }
