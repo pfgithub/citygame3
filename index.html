@@ -459,7 +459,7 @@ function drawStair(g,s){
   g.fillStyle=C.dark;g.fillRect(0,-Wd/2,L,Wd);
   const n=Math.round(L/.32),st=L/n;
   for(let i=0;i<n;i++){const a=lit((i+.5)/n);if(a<.004)continue;g.globalAlpha=a;
-    const v=Math.round(lerp(118,214,i/(n-1)));g.fillStyle=`rgb(${v},${v-3},${v-9})`;g.fillRect(i*st,-Wd/2,st+.01,Wd);
+    g.fillStyle='#c4c1b8';g.fillRect(i*st,-Wd/2,st+.01,Wd);
     g.fillStyle='rgba(0,0,0,.22)';g.fillRect(i*st,-Wd/2,.035,Wd)}
   g.strokeStyle='rgba(255,255,255,.7)';g.lineWidth=.09;g.lineCap='round';g.lineJoin='round';
   const a=Math.min(.38,Wd*.22);for(let x=L*.25;x<L*.9;x+=L*.25){g.globalAlpha=lit(x/L);g.beginPath();g.moveTo(x-a,-a);g.lineTo(x,0);g.lineTo(x-a,a);g.stroke()}
