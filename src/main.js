@@ -208,8 +208,8 @@ function updateTrains(dt){
 // Seconds until the next train opens its doors at each stop of the loop, by running the timetable forward.
 let etaAt=-1,ETA=[];
 function etas(){
-  if(Math.abs(time-etaAt)<.5)return ETA;
-  etaAt=time;const T=TRAINS.map(t=>({...t,g:null,doors:null}));ETA=STOPS.map((_,j)=>T.some(t=>t.i===j&&t.phase!=='run')?0:null);
+  if(Math.abs(S.time-etaAt)<.5)return ETA;
+  etaAt=S.time;const T=TRAINS.map(t=>({...t,g:null,doors:null}));ETA=STOPS.map((_,j)=>T.some(t=>t.i===j&&t.phase!=='run')?0:null);
   for(let s=0;s<120&&ETA.includes(null);s+=.25){stepTrains(T,.25,()=>false);for(const t of T)if(t.phase==='dwell'&&ETA[t.i]===null)ETA[t.i]=s+.25}
   return ETA;
 }
@@ -222,7 +222,7 @@ function buildDyn(){
   if(MYDOOR.open<.8)DYN.push({...MYDOOR,za:MYDOOR.z-.5,zb:MYDOOR.z+.5});
   if(P.z<-.5&&P.z>-1.5){ // concourse: which side of the gates we are on, and the arms if they are locked
     const lx=P.x-STATIONS[regionAt(P.x)].dx;if(lx>121.4)P.paid=true;else if(lx<120.6)P.paid=false;
-    if(!FP&&!P.ticket&&lx>114&&lx<118.5&&P.y<103.6)P.ticket=true;        // top-down: walking up to a machine buys one
+    if(!S.fp&&!P.ticket&&lx>114&&lx<118.5&&P.y<103.6)P.ticket=true;        // top-down: walking up to a machine buys one
     if(!gatesOpen())for(const g of GATES)if(Math.abs(g.cx-P.x)<3)DYN.push({x:g.cx-.1,y:g.y,w:.2,h:.8,za:-1.5,zb:-.5});
   }else if(P.z<=-1.5)P.paid=true;else P.paid=false;
   if(P.z>-.5&&P.z<.5&&P.x<700)for(const c of CARS){const r=carRect(c);if(Math.abs(r.x+r.w/2-P.x)<12&&Math.abs(r.y+r.h/2-P.y)<12)DYN.push({...r,za:-.5,zb:.5})}
@@ -454,8 +454,10 @@ function seatBehind(){
 }
 
 // ---------------------------------------------------------------- state
+// Shared mutable state. fp: first-person mode (P.a is the heading, pitch the look up/down).
+// w, h, dpr: the canvas size in device pixels.
+const S={time:0,view:VIEW_OUT,indoor:0,bIn:0,pendingBtn:null,fp:false,pitch:0,eyeH:1.65,w:0,h:0,dpr:1};
 const P={car:null,vx:0,vy:0,boat:null,ticket:false,paid:false,x:68,y:68.2,z:0,a:-Math.PI/2,lift:null,train:null,walk:0};
-let view=VIEW_OUT,indoor=0,bIn=0,time=0,pendingBtn=null;
 // The player's position is kept across page loads. Only places that will still make sense
 // later are saved: not the inside of a lift or a train, which will have moved on.
 const SAVE='ctg.position.v1';
@@ -474,13 +476,12 @@ function savePosition(){
 // Forget the saved spot and go back to where a new game starts.
 function resetSave(){
   try{localStorage.removeItem(SAVE)}catch(_){}
-  P.x=68;P.y=68.2;P.z=0;P.a=-Math.PI/2;P.lift=P.train=P.sit=P.boat=P.car=null;for(const c of DCARS){Object.assign(c,c.home);c.vx=c.vy=0}P.ticket=false;pitch=0;CAM.x=P.x;CAM.y=P.y;A.kx=A.ky=0;A.hp=100;equip(null);
+  P.x=68;P.y=68.2;P.z=0;P.a=-Math.PI/2;P.lift=P.train=P.sit=P.boat=P.car=null;for(const c of DCARS){Object.assign(c,c.home);c.vx=c.vy=0}P.ticket=false;S.pitch=0;CAM.x=P.x;CAM.y=P.y;A.kx=A.ky=0;A.hp=100;equip(null);
 }
 addEventListener('pagehide',savePosition);document.addEventListener('visibilitychange',()=>{if(document.hidden)savePosition()});
 // Mouse / finger travel since the last tick, in CSS pixels. input.override is a scripted direction for tests.
 const input={dx:0,dy:0,override:null};
 const keys=new Set();
-let FP=false,pitch=0,eyeH=1.65;                // first-person mode: P.a is the heading, pitch the look up/down
 const CAM={x:P.x,y:P.y};
 
 // ---------------------------------------------------------------- traffic
@@ -491,7 +492,7 @@ const BARRIERS=[[-.6,66,.6,4],[-.6,82,.6,4],[200,66,.6,4],[200,82,.6,4],[86,-.6,
 const LANES=[{ax:'x',dir:1,c:77.8,stop:85.4,sig:0,a:-60,b:558},{ax:'x',dir:-1,c:74.2,stop:104.6,sig:0,a:-60,b:558},
   {ax:'y',dir:1,c:92.5,stop:65.4,sig:1,a:-60,b:220},{ax:'y',dir:-1,c:97.5,stop:86.6,sig:1,a:-60,b:220}];
 const SIG_T=26;
-function sigState(g){const t=time%SIG_T;return g===0?(t<12?'g':t<14?'y':'r'):(t<15?'r':t<23?'g':t<25?'y':'r')}
+function sigState(g){const t=S.time%SIG_T;return g===0?(t<12?'g':t<14?'y':'r'):(t<15?'r':t<23?'g':t<25?'y':'r')}
 const CARS=[];
 {const tr=mulberry32(21);LANES.forEach((ln,li)=>{const n=ln.ax==='x'?7:3;
   for(let i=0;i<n;i++)CARS.push({ln,s:ln.a+(i+tr()*.5)*(ln.b-ln.a)/n,v:8,len:4.3+tr()*.5,col:CARC[Math.floor(tr()*CARC.length)]})})}
@@ -539,7 +540,7 @@ function pedPath(a,b){ // shortest way through the network
   const path=[b];while(path[0]!==a&&prev[path[0]])path.unshift(prev[path[0]]);return path;
 }
 // May someone step off the kerb now? Only while the traffic they would cross has a red with enough of it left.
-function mayCross(g,len){const t=time%SIG_T,need=(len-4)/1.4+1;   // (the road itself is 4 m narrower than kerb-node to kerb-node)
+function mayCross(g,len){const t=S.time%SIG_T,need=(len-4)/1.4+1;   // (the road itself is 4 m narrower than kerb-node to kerb-node)
  return g===0?(t>=14.3&&t+need<SIG_T+.3):(t>=25.3||t+need<14.7)}
 const prng=mulberry32(77),PEDS=[];
 function pedGoal(q){
@@ -583,12 +584,12 @@ const SEAT=[-.05,-.38],HINGE=[.55,-.94],DOOR_L=1.1,DOOR_SWING_CAR=1.2;
 function carDoorSeg(c){const t=c.door*DOOR_SWING_CAR,h=carPt(c,HINGE[0],HINGE[1]),e=carPt(c,HINGE[0]-Math.cos(t)*DOOR_L,HINGE[1]-Math.sin(t)*DOOR_L);return{h,e}}
 // The car whose door the crosshair is on (first person), from outside or from the driver's seat.
 function aimedCarDoor(){
-  if(!FP||P.z!==0)return null;
+  if(!S.fp||P.z!==0)return null;
   const ex=P.car?carPt(P.car,SEAT[0]-.2,SEAT[1]).x:P.x,ey=P.car?carPt(P.car,SEAT[0]-.2,SEAT[1]).y:P.y,dx=Math.cos(P.a),dy=Math.sin(P.a);
   for(const c of DCARS){if(P.car&&P.car!==c)continue;
     const{h,e}=carDoorSeg(c),ux=e.x-h.x,uy=e.y-h.y,den=dx*uy-dy*ux;if(Math.abs(den)<1e-6)continue;
     const t=((h.x-ex)*uy-(h.y-ey)*ux)/den,u=((h.x-ex)*dy-(h.y-ey)*dx)/den;if(t<.05||t>2.4||u<0||u>1)continue;
-    const hgt=(P.car?1.2:eyeH)+t*Math.tan(pitch);if(hgt>.2&&hgt<1.5)return c}
+    const hgt=(P.car?1.2:S.eyeH)+t*Math.tan(S.pitch);if(hgt>.2&&hgt<1.5)return c}
   return null;
 }
 // A held car door follows the mouse the way it looks on screen: whichever way its free edge
@@ -598,7 +599,7 @@ function carDoorMouse(c,dx,dy){
   const side=wx*-Math.sin(P.a)+wy*Math.cos(P.a);
   c.dv+=clamp((Math.abs(side)>.15?dx*Math.sign(side):dy)*.008,-.14,.14);   // (seen end-on, pulling the mouse back opens it)
 }
-function enterCar(c){P.car=c;P.sit=null;c.ax=c.ay=0;c.exiting=false;if(FP){P.a=c.a;pitch=0}}
+function enterCar(c){P.car=c;P.sit=null;c.ax=c.ay=0;c.exiting=false;if(S.fp){P.a=c.a;S.pitch=0}}
 function exitCar(){
   const c=P.car;if(!c||carSpeed(c)>2.5)return;
   for(const side of[-1.75,1.75]){const q=carPt(c,-.3,side);          // out of the driver's door if there is room
@@ -613,7 +614,7 @@ const carStepIn=()=>P.z!==0||P.boat||P.sit?null:DCARS.find(c=>{const q=carPt(c,S
 const atCarDoor=c=>{const q=carPt(c,-.1,-1.5);return P.z===0&&!P.car&&Math.hypot(q.x-P.x,q.y-P.y)<1.6};
 function updateCarDoors(dt){
   for(const c of DCARS){
-    if(!FP){ // top-down: the door opens for you as you come up to it, and shuts behind you
+    if(!S.fp){ // top-down: the door opens for you as you come up to it, and shuts behind you
       c.grab=false;c.dv=0;
       const want=P.car===c?(c.exiting?1:0):atCarDoor(c)?1:0;c.door=want?Math.min(1,c.door+dt/.3):Math.max(0,c.door-dt/.3);
       if(c.exiting&&P.car===c&&c.door>.6)exitCar();
@@ -630,15 +631,15 @@ const nearCar=()=>P.car||P.z!==0?null:DCARS.find(c=>Math.hypot(c.x-P.x,c.y-P.y)<
 function updateDriving(dt){
   const c=P.car;if(!c)return;
   const fx=Math.cos(c.a),fy=Math.sin(c.a),sf=surfaceAt(c.x,c.y,0),a0=c.a;
-  if(P.car===c&&FP&&c.door>.6&&carSpeed(c)<1&&(c.thr>0||c.st<0)){exitCar();return}   // door open, stopped: forward or left is out of the car
-  if(!FP){ // the pointer leads: steer at it, and go faster the further off it is
+  if(P.car===c&&S.fp&&c.door>.6&&carSpeed(c)<1&&(c.thr>0||c.st<0)){exitCar();return}   // door open, stopped: forward or left is out of the car
+  if(!S.fp){ // the pointer leads: steer at it, and go faster the further off it is
     const d=Math.hypot(c.ax,c.ay),want=Math.atan2(c.ay,c.ax),da=angDiff(want,c.a);
     if(d<1.6){c.thr=0;c.st=0}
     else if(Math.abs(da)<2.2){c.thr=clamp((d-1.6)/7,0,1);c.st=clamp(da*1.3,-.6,.6)}
     else{c.thr=-.6;c.st=clamp(-angDiff(want,c.a+Math.PI)*1.3,-.6,.6)}       // it is behind: back up towards it
   }
   if(c.door>.2)c.thr=0;                                                // it will not pull away with the door open
-  c.steer+=clamp(c.st*(FP?.55:1)-c.steer,-2.2*dt,2.2*dt);
+  c.steer+=clamp(c.st*(S.fp?.55:1)-c.steer,-2.2*dt,2.2*dt);
   let vf=c.vx*fx+c.vy*fy,vl=-c.vx*fy+c.vy*fx;
   const push=sf==='ice'?.3:1;
   if(c.thr>0)vf+=(vf<0?14:9*push)*c.thr*dt;else if(c.thr<0)vf+=(vf>0?14*push:5*push)*c.thr*dt;else vf*=Math.exp(-dt*(sf==='ice'?.15:1.3));
@@ -657,7 +658,7 @@ function updateDriving(dt){
       if(d<1e-6){const l=e.x-o.x,r=o.x+o.w-e.x,t=e.y-o.y,b=o.y+o.h-e.y,m=Math.min(l,r,t,b);nx=m===l?-1:m===r?1:0;ny=m===t?-1:m===b?1:0;if(nx)ny=0;pen=CR+m}else{pen=CR-d;nx=dx/d;ny=dy/d}}
     if(pen>0){c.x+=nx*pen;c.y+=ny*pen;e.x+=nx*pen;e.y+=ny*pen;const vn=c.vx*nx+c.vy*ny;if(vn<0){c.vx-=nx*vn*1.2;c.vy-=ny*vn*1.2;c.vx*=.92;c.vy*=.92}}}
   if(c.x<900){c.x=clamp(c.x,1.2,678.8);const y0=c.x<200?0:c.x<560?40:42,y1=c.x<200?160:c.x<560?112:130;c.y=clamp(c.y,y0+1.2,y1-1.2)}
-  P.x=c.x;P.y=c.y;P.z=0;if(FP)P.a+=c.a-a0;
+  P.x=c.x;P.y=c.y;P.z=0;if(S.fp)P.a+=c.a-a0;
 }
 
 // ---------------------------------------------------------------- boat
@@ -684,7 +685,7 @@ function updateBoat(dt){
   if(!b.held&&Math.abs(b.v)<1.6&&Math.hypot(b.x-BERTH.x,b.y-BERTH.y)<2.6){ // drifting in by the berth: it ties itself up
     const k=Math.min(1,dt*2.5);b.x+=(BERTH.x-b.x)*k;b.y+=(BERTH.y-b.y)*k;b.a+=angDiff(BERTH.a,b.a)*k;b.v*=1-k;
     if(Math.hypot(b.x-BERTH.x,b.y-BERTH.y)<.04&&Math.abs(angDiff(BERTH.a,b.a))<.02){b.x=BERTH.x;b.y=BERTH.y;b.a=BERTH.a;b.v=b.thr=0;b.docked=true}}
-  if(P.boat){boatPlace();if(FP)P.a+=b.a-a0;CAM.x+=P.x-ox;CAM.y+=P.y-oy}   // whoever is aboard goes with it, and so does the camera
+  if(P.boat){boatPlace();if(S.fp)P.a+=b.a-a0;CAM.x+=P.x-ox;CAM.y+=P.y-oy}   // whoever is aboard goes with it, and so does the camera
 }
 
 // ---------------------------------------------------------------- arena combat
@@ -735,7 +736,7 @@ function ropeLoops(pts){
 }
 function equip(w){A.cur=w;A.bow=A.missile=A.lasso=A.tip=null;A.sp=A.boom=A.well=null;
   A.whip=w&&w.id==='whip'?Array.from({length:9},()=>({x:P.x,y:P.y,px:P.x,py:P.y})):null;A.ball=w&&w.id==='ball'?{x:P.x,y:P.y,px:P.x,py:P.y}:null}
-const inArena=()=>!FP&&P.z===0&&regionAt(P.x)===2;
+const inArena=()=>!S.fp&&P.z===0&&regionAt(P.x)===2;
 // While the bow is drawn or a missile is flying, the mouse drives that instead of the player.
 const mouseCaptured=()=>inArena()&&!!(A.bow||A.missile||A.sp);
 function explode(){
@@ -968,10 +969,10 @@ function updateLift(l,dt){
   const d=l.dr,inside=P.lift===l,sameZ=Math.abs(P.z-l.z)<.01;
   const blocked=sameZ&&P.x>d.x-R-.05&&P.x<d.x+d.w+R+.05&&Math.abs(P.y-(d.y+.1))<R+.25;
   const f=Math.round(P.z);
-  const nearCall=!FP&&!inside&&Math.abs(P.z-f)<.01&&f>=l.zmin&&f<=l.zmax&&inRect(P.x,P.y,l.call);   // top-down: walking up calls it
+  const nearCall=!S.fp&&!inside&&Math.abs(P.z-f)<.01&&f>=l.zmin&&f<=l.zmax&&inRect(P.x,P.y,l.call);   // top-down: walking up calls it
   l.openT-=dt;
   if(!l.moving){
-    if(inside){if(pendingBtn!==null){if(pendingBtn!==l.z&&pendingBtn>=l.zmin&&pendingBtn<=l.zmax){l.target=pendingBtn;l.src='btn'}pendingBtn=null}}
+    if(inside){if(S.pendingBtn!==null){if(S.pendingBtn!==l.z&&S.pendingBtn>=l.zmin&&S.pendingBtn<=l.zmax){l.target=S.pendingBtn;l.src='btn'}S.pendingBtn=null}}
     else{
       if(l.src==='btn'){l.target=null;l.src=null}
       if(nearCall){if(l.z!==f){l.target=f;l.src='call'}else l.target=null}
@@ -998,8 +999,8 @@ function updateLift(l,dt){
 // pos() gives where the thing is right now (or null if it is not on the player's level).
 const PRESS=[];
 function aimedPress(){
-  if(!FP)return null;
-  const ex=P.x,ey=Y(P.z)+eyeH,ez=P.y,cp=Math.cos(pitch),dx=Math.cos(P.a)*cp,dy=Math.sin(pitch),dz=Math.sin(P.a)*cp;let best=null,bd=2.2;
+  if(!S.fp)return null;
+  const ex=P.x,ey=Y(P.z)+S.eyeH,ez=P.y,cp=Math.cos(S.pitch),dx=Math.cos(P.a)*cp,dy=Math.sin(S.pitch),dz=Math.sin(P.a)*cp;let best=null,bd=2.2;
   for(const t of PRESS){const q=t.pos();if(!q)continue;
     const vx=q.x-ex,vy=q.h-ey,vz=q.y-ez,along=vx*dx+vy*dy+vz*dz;if(along<.1||along>bd)continue;
     if(Math.hypot(vx-dx*along,vy-dy*along,vz-dz*along)<t.r){bd=along;best=t}}
@@ -1009,7 +1010,7 @@ function aimedPress(){
 const panelOf=l=>{const n=l.zmax-l.zmin+1,cols=n>5?2:1,rows=Math.ceil(n/cols);return{n,cols,rows,pw:cols*.13,ph:rows*.11,cy:l.y+1.05,ch:1.3}};
 for(const l of LIFTS){const pn=panelOf(l);
   for(let i=0;i<pn.n;i++){const f=l.zmin+i,col=i%pn.cols,row=Math.floor(i/pn.cols);
-    PRESS.push({r:.05,tip:()=>'Floor '+(f+1),act:()=>{pendingBtn=f},
+    PRESS.push({r:.05,tip:()=>'Floor '+(f+1),act:()=>{S.pendingBtn=f},
       pos:()=>P.lift===l?{x:l.x+l.w-.2,y:pn.cy+((col+.5)/pn.cols-.5)*pn.pw,h:Y(l.z)+pn.ch+((row+.5)/pn.rows-.5)*pn.ph}:null})}
   for(let z=l.zmin;z<=l.zmax;z++)PRESS.push({r:.09,tip:()=>'Call the lift',act:()=>{l.want=z},
     pos:()=>Math.abs(P.z-z)<.01&&P.lift!==l?{x:l.dr.x+l.dr.w+.32,y:l.y+2.43,h:Y(z)+1.1}:null});
@@ -1023,12 +1024,12 @@ for(const st of STATIONS)for(let k=0;k<3;k++)PRESS.push({r:.32,tip:()=>P.ticket?
 const DOOR_SWING=1.75,HANDLE=.84;
 // Is the crosshair on the door leaf (wherever it has swung to), within arm's reach?
 function aimingAtDoor(){
-  const d=MYDOOR;if(!FP||Math.abs(P.z-d.z)>.01)return false;
+  const d=MYDOOR;if(!S.fp||Math.abs(P.z-d.z)>.01)return false;
   const a=d.open*DOOR_SWING,ux=Math.cos(a),uy=Math.sin(a),dx=Math.cos(P.a),dy=Math.sin(P.a),hx=d.x-P.x,hy=d.y+.1-P.y,den=dx*uy-dy*ux;
   if(Math.abs(den)<1e-6)return false;
   const t=(hx*uy-hy*ux)/den,sAlong=(hx*dy-hy*dx)/den;                     // along the gaze, along the door
   if(t<.05||t>2.6||sAlong<0||sAlong>d.w)return false;
-  const hgt=eyeH+t*Math.tan(pitch);return hgt>0&&hgt<2.1;
+  const hgt=S.eyeH+t*Math.tan(S.pitch);return hgt>0&&hgt<2.1;
 }
 // While the door is held: up/down works the lever, sideways leans on the door. The lever has
 // to be down to unlatch a shut door; once it is ajar the lever no longer matters.
@@ -1039,7 +1040,7 @@ function doorMouse(dx,dy){
 }
 function updateMyDoor(dt){
   const d=MYDOOR;
-  if(!FP){d.grab=false;
+  if(!S.fp){d.grab=false;
     const near=Math.abs(P.z-d.z)<.01&&Math.hypot(P.x-(d.x+.5),P.y-(d.y+.1))<1.5;
     d.open=near?Math.min(1,d.open+dt/.35):Math.max(0,d.open-dt/.35);d.h=0;d.v=0;return}
   if(d.grab){if(!A.down)d.grab=false}
@@ -1051,26 +1052,26 @@ function updateMyDoor(dt){
 }
 function updateIndoor(dt){
   // Everything here is a function of where the player stands, not of time.
-  bIn=0;
+  S.bIn=0;
   for(const b of BUILDINGS){const d=Math.hypot(P.x-b.door.x,P.y-b.door.y);
-    b.bIn=P.z>.01?1:P.z<-.01?0:inRect(P.x,P.y,b.rect)?clamp(.5+d/8):clamp(.5-d/8);bIn=Math.max(bIn,b.bIn)}
-  indoor=Math.max(bIn,clamp(-P.z)*.5);
-  const target=P.car?VIEW_OUT*(1.1+.5*Math.min(1,carSpeed(P.car)/20)):lerp(VIEW_OUT,VIEW_IN,indoor);   // driving: pull back, more at speed
-  view+=(target-view)*(1-Math.exp(-dt*12));
+    b.bIn=P.z>.01?1:P.z<-.01?0:inRect(P.x,P.y,b.rect)?clamp(.5+d/8):clamp(.5-d/8);S.bIn=Math.max(S.bIn,b.bIn)}
+  S.indoor=Math.max(S.bIn,clamp(-P.z)*.5);
+  const target=P.car?VIEW_OUT*(1.1+.5*Math.min(1,carSpeed(P.car)/20)):lerp(VIEW_OUT,VIEW_IN,S.indoor);   // driving: pull back, more at speed
+  S.view+=(target-S.view)*(1-Math.exp(-dt*12));
 }
 function tick(dt){
-  time+=dt;if(time-savedAt>1){savedAt=time;savePosition()}
+  S.time+=dt;if(S.time-savedAt>1){savedAt=S.time;savePosition()}
   updateTrains(dt);updatePeds(dt);updateTraffic(dt);buildDyn();
   // You are the mouse pointer: it moves across the world exactly as far as the
   // mouse moved across the screen, however fast that is.
   let wx,wy;
-  if(input.override){const sp=SPEED_IN*view/VIEW_IN*dt;wx=input.override.x*sp;wy=input.override.y*sp}
-  else if(FP){ // mouse looks, WASD walks, Shift runs
+  if(input.override){const sp=SPEED_IN*S.view/VIEW_IN*dt;wx=input.override.x*sp;wy=input.override.y*sp}
+  else if(S.fp){ // mouse looks, WASD walks, Shift runs
     const heldCar=DCARS.find(c=>c.grab);
     if(MYDOOR.grab)doorMouse(input.dx,input.dy);        // a held handle takes the mouse; otherwise it looks around
     else if(heldCar)carDoorMouse(heldCar,input.dx,input.dy);
     else if(P.boat&&A.down)tiller(input.dx,input.dy);
-    else{P.a+=input.dx*.0024;pitch=clamp(pitch-input.dy*.0024,-1.45,1.45)}
+    else{P.a+=input.dx*.0024;S.pitch=clamp(S.pitch-input.dy*.0024,-1.45,1.45)}
     let f=0,r=0;if(keys.has('KeyW'))f+=1;if(keys.has('KeyS'))f-=1;if(keys.has('KeyD'))r+=1;if(keys.has('KeyA'))r-=1;
     if(P.car){P.car.thr=f;P.car.st=r;f=r=0}             // at the wheel the keys drive
     if(P.sit){ // seated: settle onto the chair; walking forward stands you up
@@ -1085,10 +1086,10 @@ function tick(dt){
     }
     const m=Math.hypot(f,r)||1,sp=(keys.has('ShiftLeft')||keys.has('ShiftRight')?8.5:4)*dt/m,c=Math.cos(P.a),sn=Math.sin(P.a);
     wx=(f*c-r*sn)*sp;wy=(f*sn+r*c)*sp;
-  }else if(P.car){const c=P.car,k=DPR*view/Math.min(W,H);c.ax+=input.dx*k;c.ay+=input.dy*k;   // the mouse moves the pointer the car chases
+  }else if(P.car){const c=P.car,k=S.dpr*S.view/Math.min(S.w,S.h);c.ax+=input.dx*k;c.ay+=input.dy*k;   // the mouse moves the pointer the car chases
     const d=Math.hypot(c.ax,c.ay);if(d>14){c.ax*=14/d;c.ay*=14/d}wx=wy=0}
   else if(P.boat&&A.down){tiller(input.dx,input.dy);wx=wy=0}
-  else{const k=DPR*view/Math.min(W,H);wx=input.dx*k;wy=input.dy*k}
+  else{const k=S.dpr*S.view/Math.min(S.w,S.h);wx=input.dx*k;wy=input.dy*k}
   let amx=0,amy=0;if(!input.override&&mouseCaptured()){amx=wx;amy=wy;wx=wy=0}
   const hx=wx,hy=wy;                                   // where the player meant to go, before any shove
   if(A.kx||A.ky){wx+=A.kx*dt;wy+=A.ky*dt;const d=Math.exp(-dt*5);A.kx*=d;A.ky*=d;if(Math.hypot(A.kx,A.ky)<.05)A.kx=A.ky=0}
@@ -1100,9 +1101,9 @@ function tick(dt){
   }
   updateBoat(dt);
   updateCarDoors(dt);
-  if(P.car){if(!FP&&A.click&&carSpeed(P.car)<1)P.car.exiting=true;          // top-down: a click when stopped opens the door and you get out
+  if(P.car){if(!S.fp&&A.click&&carSpeed(P.car)<1)P.car.exiting=true;          // top-down: a click when stopped opens the door and you get out
     wx=wy=0;if(P.car)updateDriving(dt)}
-  else if(!FP){const c=carStepIn();if(c)enterCar(c)}
+  else if(!S.fp){const c=carStepIn();if(c)enterCar(c)}
   // Surfaces. Ordinarily the pointer goes exactly where the mouse says. On ice the mouse only
   // pushes: speed builds, and carries on when you stop. In water you wade: slow, and sluggish.
   const sf=P.boat||P.sit||P.lift||P.car?null:surfaceAt(P.x,P.y,P.z),px0=P.x,py0=P.y;
@@ -1120,14 +1121,14 @@ function tick(dt){
     }
   }
   if(sf){P.vx=(P.x-px0)/dt;P.vy=(P.y-py0)/dt}          // whatever a wall or the boards stopped is gone
-  if(!FP&&Math.hypot(hx,hy)>.01)P.a+=angDiff(Math.atan2(hy,hx),P.a)*Math.min(1,Math.hypot(hx,hy)*4);   // the pointer faces the way it last moved
+  if(!S.fp&&Math.hypot(hx,hy)>.01)P.a+=angDiff(Math.atan2(hy,hx),P.a)*Math.min(1,Math.hypot(hx,hy)*4);   // the pointer faces the way it last moved
   gather(P.x-1.5,P.y-1.5,P.x+1.5,P.y+1.5);
-  if(!FP)P.sit=null;
-  eyeH+=((P.sit?1.12:1.65)-eyeH)*Math.min(1,dt*7);
-  if(!P.lift)pendingBtn=null;
+  if(!S.fp)P.sit=null;
+  S.eyeH+=((P.sit?1.12:1.65)-S.eyeH)*Math.min(1,dt*7);
+  if(!P.lift)S.pendingBtn=null;
   for(const l of LIFTS)updateLift(l,dt);
   updateMyDoor(dt);collide();updateZ();updateIndoor(dt);
-  if(FP&&A.click&&!MYDOOR.grab){const t=aimedPress();if(t)t.act()}
+  if(S.fp&&A.click&&!MYDOOR.grab){const t=aimedPress();if(t)t.act()}
   updateArena(dt,amx,amy);if(A.ball)collide();   // (a swinging ball may have tugged the player)
   // the camera trails the pointer a little but never lets it stray far from the centre
   // (a drawn bow pulls the camera towards the drag point; a missile takes it along)
@@ -1137,7 +1138,7 @@ function tick(dt){
   if(inArena()){if(A.missile){fx=A.missile.x;fy=A.missile.y}else if(A.bow){fx-=A.bow.px*.6;fy-=A.bow.py*.6}}
   const easing=A.ease>0;if(easing)A.ease-=dt;                      // gliding back after a missile: slower, and unclamped
   const f=1-Math.exp(-dt*(easing?3.5:9));CAM.x+=(fx-CAM.x)*f;CAM.y+=(fy-CAM.y)*f;
-  const ox=fx-CAM.x,oy=fy-CAM.y,o=Math.hypot(ox,oy),lim=view*.16;
+  const ox=fx-CAM.x,oy=fy-CAM.y,o=Math.hypot(ox,oy),lim=S.view*.16;
   if(o>lim&&!easing){CAM.x=fx-ox/o*lim;CAM.y=fy-oy/o*lim}
 }
 
@@ -1146,7 +1147,7 @@ function tick(dt){
 // painters below are kept as texture artists: they paint the ground and each
 // floor once, and those pictures are laid onto the 3D floors.
 const cv=document.getElementById('c');
-let W=0,H=0,DPR=1;const VB={x0:0,y0:0,x1:0,y1:0};
+const VB={x0:0,y0:0,x1:0,y1:0};
 const vis=(x,y,w,h)=>x<VB.x1&&x+w>VB.x0&&y<VB.y1&&y+h>VB.y0;
 function text(g,s,x,y,size,color,rot=0,align='center'){g.save();g.translate(x,y);g.rotate(rot);g.scale(size/20,size/20);
   g.font='600 20px system-ui,sans-serif';g.textAlign=align;g.textBaseline='middle';g.fillStyle=color;g.fillText(s,0,0);g.restore()}
@@ -1195,7 +1196,7 @@ function drawOutdoor(g){
   g.fillStyle='#b9b3a4';disc(g,FOUNT.x,FOUNT.y,FOUNT.r);g.fill();
   g.fillStyle='#6fb3d6';disc(g,FOUNT.x,FOUNT.y,FOUNT.r-.35);g.fill();
   g.lineWidth=.08;
-  for(let k=0;k<3;k++){const q=(time*.5+k/3)%1;g.strokeStyle=`rgba(255,255,255,${(.6*(1-q)).toFixed(3)})`;disc(g,FOUNT.x,FOUNT.y,.3+q*1.8);g.stroke()}
+  for(let k=0;k<3;k++){const q=(S.time*.5+k/3)%1;g.strokeStyle=`rgba(255,255,255,${(.6*(1-q)).toFixed(3)})`;disc(g,FOUNT.x,FOUNT.y,.3+q*1.8);g.stroke()}
   g.fillStyle='#e5e1d6';disc(g,FOUNT.x,FOUNT.y,.35);g.fill();
   g.fillStyle='#b5a77f';g.beginPath();g.ellipse(POND.x,POND.y,POND.rx+.6,POND.ry+.6,0,0,6.2832);g.fill();
   g.fillStyle='#5fa3c9';g.beginPath();g.ellipse(POND.x,POND.y,POND.rx,POND.ry,0,0,6.2832);g.fill();
@@ -1254,10 +1255,10 @@ function drawHarborGround(g){
   // water
   g.fillStyle='#4f8db3';g.fillRect(x0,VB.y0-1,w,60-(VB.y0-1));
   g.strokeStyle='rgba(255,255,255,.14)';g.lineWidth=.12;g.setLineDash([2.2,5]);
-  for(let y=Math.floor(VB.y0/3)*3;y<59;y+=3){g.lineDashOffset=-time*1.2+y*2.3;g.beginPath();g.moveTo(x0,y);g.lineTo(x0+w,y);g.stroke()}
+  for(let y=Math.floor(VB.y0/3)*3;y<59;y+=3){g.lineDashOffset=-S.time*1.2+y*2.3;g.beginPath();g.moveTo(x0,y);g.lineTo(x0+w,y);g.stroke()}
   g.setLineDash([]);g.lineDashOffset=0;
   for(const[x,y,bw,bh,c]of[[583,49,7,2.6,'#e9e6df'],[599,45,5,2,'#c94f3d'],[644,51,8,2.8,'#e9e6df'],[660,45.5,5,2,'#3d6fc9']]){
-    const by=y+Math.sin(time*.8+x)*.12;
+    const by=y+Math.sin(S.time*.8+x)*.12;
     g.fillStyle='rgba(0,0,0,.15)';rrect(g,x+.3,by+.3,bw,bh,bh*.45);g.fill();
     g.fillStyle=c;rrect(g,x,by,bw,bh,bh*.45);g.fill();
     g.fillStyle='rgba(0,0,0,.18)';rrect(g,x+bw*.25,by+bh*.25,bw*.45,bh*.5,.3);g.fill()}
@@ -1372,9 +1373,9 @@ const qscene=new THREE.Scene(),qcam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
 const QUAD=new THREE.Mesh(new THREE.PlaneGeometry(2,2),new THREE.MeshBasicMaterial({transparent:true,depthTest:false,depthWrite:false}));
 qscene.add(QUAD);
 function resize(){
-  DPR=Math.min(2,window.devicePixelRatio||1);W=Math.round(innerWidth*DPR);H=Math.round(innerHeight*DPR);
-  renderer.setPixelRatio(DPR);renderer.setSize(innerWidth,innerHeight,false);
-  if(RT)RT.dispose();RT=new THREE.WebGLRenderTarget(W,H,{samples:4});QUAD.material.map=RT.texture;
+  S.dpr=Math.min(2,window.devicePixelRatio||1);S.w=Math.round(innerWidth*S.dpr);S.h=Math.round(innerHeight*S.dpr);
+  renderer.setPixelRatio(S.dpr);renderer.setSize(innerWidth,innerHeight,false);
+  if(RT)RT.dispose();RT=new THREE.WebGLRenderTarget(S.w,S.h,{samples:4});QUAD.material.map=RT.texture;
 }
 addEventListener('resize',resize);resize();
 
@@ -1419,7 +1420,7 @@ function art(x,y,w,h,ppm,fn){
   a.mat=new THREE.MeshLambertMaterial({map:a.tex});
   a.uv=(wx,wy)=>[(wx-x)/w,1-(wy-y)/h];
   a.paint=()=>{const g=c.getContext('2d');g.setTransform(c.width/w,0,0,c.height/h,-x*c.width/w,-y*c.height/h);
-    VB.x0=x;VB.y0=y;VB.x1=x+w;VB.y1=y+h;const t=time;time=0;fn(g);time=t;a.tex.needsUpdate=true};   // (painted at time 0 so neighbouring pictures match)
+    VB.x0=x;VB.y0=y;VB.x1=x+w;VB.y1=y+h;const t=S.time;S.time=0;fn(g);S.time=t;a.tex.needsUpdate=true};   // (painted at time 0 so neighbouring pictures match)
   a.paint();return a;
 }
 // A flat floor: `rect` minus rectangular holes (stairwells, lift shafts), textured.
@@ -1586,9 +1587,9 @@ for(const l of LIFTS){
   {const pn=panelOf(l),cv2=document.createElement('canvas');cv2.width=pn.cols*64;cv2.height=pn.rows*54;
     const tex=new THREE.CanvasTexture(cv2),pl=new THREE.Mesh(new THREE.PlaneGeometry(pn.pw,pn.ph),new THREE.MeshBasicMaterial({map:tex}));
     pl.rotation.y=-Math.PI/2;pl.position.set(l.x+l.w-.145,pn.ch,pn.cy);l.car.add(pl);
-    l.paintPanel=()=>{const key=l.target+'|'+Math.round(l.z)+'|'+(P.lift===l?pendingBtn:'');if(key===l.panelKey)return;l.panelKey=key;
+    l.paintPanel=()=>{const key=l.target+'|'+Math.round(l.z)+'|'+(P.lift===l?S.pendingBtn:'');if(key===l.panelKey)return;l.panelKey=key;
       const g=cv2.getContext('2d');g.fillStyle='#3a3d44';g.fillRect(0,0,cv2.width,cv2.height);
-      for(let i=0;i<pn.n;i++){const f=l.zmin+i,x=(i%pn.cols+.5)*64,y=cv2.height-(Math.floor(i/pn.cols)+.5)*54,on=l.target===f||(P.lift===l&&pendingBtn===f),here=Math.round(l.z)===f&&l.target===null;
+      for(let i=0;i<pn.n;i++){const f=l.zmin+i,x=(i%pn.cols+.5)*64,y=cv2.height-(Math.floor(i/pn.cols)+.5)*54,on=l.target===f||(P.lift===l&&S.pendingBtn===f),here=Math.round(l.z)===f&&l.target===null;
         g.fillStyle=on?'#f0b63a':here?'#cfd3d9':'#1c1e22';g.beginPath();g.arc(x,y,21,0,7);g.fill();g.strokeStyle='#cfd3d9';g.lineWidth=3;g.stroke();
         g.fillStyle=on||here?'#1c1e22':'#f2f3f5';g.font='600 24px system-ui,sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(f+1,x,y+1)}
       tex.needsUpdate=true};
@@ -1704,12 +1705,12 @@ function arenaSync(){
   ARG.visible=regionAt(P.x)===2;if(!ARG.visible)return;
   A.creatures.forEach((c,i)=>{const m=AV.body[i],b=AV.bar[i];m.visible=!c.dead;b.visible=!c.dead&&c.hp<c.max;
     if(c.dead)return;
-    const sq=1+Math.sin(time*6+i)*.05;m.position.set(c.x,c.r*.8,c.y);m.scale.set(c.r*sq,c.r*.8/sq,c.r*sq);m.rotation.y=Math.atan2(-c.vy,c.vx);
+    const sq=1+Math.sin(S.time*6+i)*.05;m.position.set(c.x,c.r*.8,c.y);m.scale.set(c.r*sq,c.r*.8/sq,c.r*sq);m.rotation.y=Math.atan2(-c.vy,c.vx);
     m.material.color.set(c.col);m.material.emissive.setScalar(c.flash>0?.7:0);
     const w=1.4*c.hp/c.max;b.position.set(c.x-(1.4-w)/2,c.r*1.7+.5,c.y-c.r-.2);b.scale.set(Math.max(w,.01),.12,.16)});
   AV.arrow.forEach((m,i)=>{const a=A.arrows[i];if(!a){m.visible=false;return}const s=Math.hypot(a.vx,a.vy);stick(m,a.x-a.vx/s*1.1,a.y-a.vy/s*1.1,a.x,a.y,1,.07)});
   AV.pud.forEach((m,i)=>{const p=A.puddles[i];m.visible=!!p;if(!p)return;const on=p.t>1;m.material=on?AV.flame:AV.fuel;
-    const h=on?.5+.45*Math.sin(time*17+i*2.1):.04,r=on?1.25:Math.min(1.1,.4+p.t);m.position.set(p.x,h/2+.02,p.y);m.scale.set(r,h,r)});
+    const h=on?.5+.45*Math.sin(S.time*17+i*2.1):.04,r=on?1.25:Math.min(1.1,.4+p.t);m.position.set(p.x,h/2+.02,p.y);m.scale.set(r,h,r)});
   const l=A.lasso,pts=l?[...l.pts,{x:P.x,y:P.y}]:[];
   AV.rope.forEach((m,i)=>{if(i<pts.length-1)stick(m,pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y,.25,.1);else m.visible=false});
   if(A.cur&&A.cur.id==='whip'&&A.whip){const w=A.whip;AV.rope.forEach((m,i)=>{if(i<w.length-1)stick(m,w[i].x,w[i].y,w[i+1].x,w[i+1].y,.5,i===w.length-2?.14:.07)})}
@@ -1735,8 +1736,8 @@ function arenaSync(){
     stick(AV.line[0],P.x+c*f+s*hw,P.y+s*f-c*hw,P.x+c*f-s*hw,P.y+s*f+c*hw,.9,A.up?.3:.16);AV.line[0].material=AV.steel}
   AV.tracer.forEach((m,i)=>{const sh=A.shot;if(!sh){m.visible=false;return}const a=sh.a+(i-3)*.16,r0=1+sh.t*40,r1=Math.min(9,r0+3);
     stick(m,sh.x+Math.cos(a)*r0,sh.y+Math.sin(a)*r0,sh.x+Math.cos(a)*r1,sh.y+Math.sin(a)*r1,1,.07)});
-  {const b=A.boom;AV.boom.visible=!!b;if(b){const a=time*22;stick(AV.boom,b.x-Math.cos(a)*.6,b.y-Math.sin(a)*.6,b.x+Math.cos(a)*.6,b.y+Math.sin(a)*.6,1,.16)}}
-  {const w=A.well;AV.well.visible=!!w;if(w){const r=1+w.t*1.1+Math.sin(time*14)*.12;AV.well.position.set(w.x,.08,w.y);AV.well.scale.set(r,.06,r)}}
+  {const b=A.boom;AV.boom.visible=!!b;if(b){const a=S.time*22;stick(AV.boom,b.x-Math.cos(a)*.6,b.y-Math.sin(a)*.6,b.x+Math.cos(a)*.6,b.y+Math.sin(a)*.6,1,.16)}}
+  {const w=A.well;AV.well.visible=!!w;if(w){const r=1+w.t*1.1+Math.sin(S.time*14)*.12;AV.well.position.set(w.x,.08,w.y);AV.well.scale.set(r,.06,r)}}
   AV.orb.forEach((m,i)=>{const o=A.orbs[i];m.visible=!!o;if(o){m.position.set(o.x,.45,o.y);m.scale.setScalar(.32)}});
   const ms=A.missile;AV.missile.visible=!!ms;
   if(ms){stick(AV.missile,ms.x-Math.cos(ms.a)*.6,ms.y-Math.sin(ms.a)*.6,ms.x+Math.cos(ms.a)*.6,ms.y+Math.sin(ms.a)*.6,1.2,.3)}
@@ -1826,40 +1827,40 @@ function render(){
   for(const g of GATES){ // an unlocked arm swings away from you as you come through
     const d=Math.hypot(P.x-g.cx,P.y-g.cy),o=P.z===-1&&gatesOpen()?clamp((1.05-d)/.6):0;
     g.o+=(o-g.o)*.35;g.pivot.rotation.y=(P.x<g.cx?1:-1)*g.o*1.45}
-  for(const q of PEDS){const sat=q.sit>0;q.g.position.set(q.x,sat?-.3:Math.abs(Math.sin(time*7+q.sp*40))*(q.wait?0:.035),q.y);q.g.rotation.y=-q.a}
+  for(const q of PEDS){const sat=q.sit>0;q.g.position.set(q.x,sat?-.3:Math.abs(Math.sin(S.time*7+q.sp*40))*(q.wait?0:.035),q.y);q.g.rotation.y=-q.a}
   for(const c of CARS){const r=carRect(c);
     if(c.turn>0){const u=1-c.turn;c.g.position.set(c.ln.b+Math.sin(Math.PI*u)*2.2,0,lerp(LANES[0].c,LANES[1].c,u));c.g.rotation.y=-Math.PI*u*-1+0}   // swinging round at the harbour end
     else{c.g.position.set(r.x+r.w/2,0,r.y+r.h/2);c.g.rotation.y=c.ln.ax==='x'?(c.ln.dir>0?0:Math.PI):(c.ln.dir>0?-Math.PI/2:Math.PI/2)}}
   for(const sg of SIGNALS){const st=sigState(sg.g);sg.lamp.material.color.set(st==='g'?'#3fd06a':st==='y'?'#f0b63a':'#e5484d')}
-  for(const c of DCARS){c.g.position.set(c.x,0,c.y);c.g.rotation.y=-c.a;c.dash.visible=FP&&P.car===c;c.pivot.rotation.y=-c.door*DOOR_SWING_CAR}
-  {const b=BOAT;b.g.position.set(b.x,Math.sin(time*1.3)*.02,b.y);b.g.rotation.y=-b.a;
+  for(const c of DCARS){c.g.position.set(c.x,0,c.y);c.g.rotation.y=-c.a;c.dash.visible=S.fp&&P.car===c;c.pivot.rotation.y=-c.door*DOOR_SWING_CAR}
+  {const b=BOAT;b.g.position.set(b.x,Math.sin(S.time*1.3)*.02,b.y);b.g.rotation.y=-b.a;
     b.tiller.position.set(-1.55,.75,0);b.tiller.scale.set(1.3,.06,.06);b.tiller.rotation.y=b.rud;b.tiller.visible=true}
   arenaSync();updateTiles();
-  if(P.z<-1.5&&time-signT>1){signT=time;for(const st of STATIONS)st.art.paint()}     // platform countdown signs
-  if(P.z>-.9)for(const c of CANOPIES){const t=c.t,a=FP?1:lerp(.22,1,clamp((Math.hypot(P.x-t.x,P.y-t.y)-t.r+.4)/1.6));   // canopies fade when the pointer is under them
+  if(P.z<-1.5&&S.time-signT>1){signT=S.time;for(const st of STATIONS)st.art.paint()}     // platform countdown signs
+  if(P.z>-.9)for(const c of CANOPIES){const t=c.t,a=S.fp?1:lerp(.22,1,clamp((Math.hypot(P.x-t.x,P.y-t.y)-t.r+.4)/1.6));   // canopies fade when the pointer is under them
     const mt=c.m.material,tr=a<.995;mt.opacity=a;
     if(mt.transparent!==tr){mt.transparent=tr;mt.depthWrite=!tr;mt.needsUpdate=true}}   // three bakes "opaque" into the shader, so a switch needs a rebuild
-  for(const m of FPONLY)m.visible=FP;
-  for(const l of LIFTS){l.paintPanel();l.hall.visible=FP}
-  for(const m of TOPONLY)m.visible=!FP;
-  {const home=P.z===MYFLAT.z&&inRect(P.x,P.y,MYRECT),o=home?0:1-MYDOOR.open;MYLID.material.opacity=o;MYLID.visible=!FP&&o>.01}
-  scene.background=FP?SKY:NIGHT;   // underground is fully roofed over, so the sky only shows up the entrance stairs
-  if(FP){ // everything exists at once, seen from eye height
+  for(const m of FPONLY)m.visible=S.fp;
+  for(const l of LIFTS){l.paintPanel();l.hall.visible=S.fp}
+  for(const m of TOPONLY)m.visible=!S.fp;
+  {const home=P.z===MYFLAT.z&&inRect(P.x,P.y,MYRECT),o=home?0:1-MYDOOR.open;MYLID.material.opacity=o;MYLID.visible=!S.fp&&o>.01}
+  scene.background=S.fp?SKY:NIGHT;   // underground is fully roofed over, so the sky only shows up the entrance stairs
+  if(S.fp){ // everything exists at once, seen from eye height
     OUTG.visible=TUNNEL.visible=true;
     for(const b of BUILDINGS){b.ext.visible=false;for(const g of b.levels)g.visible=true}
     for(const s of STAIRS)s.low.visible=s.high.visible=true;
     for(const l of LIFTS)l.car.visible=true;
     for(const st of STATIONS)st.g1.visible=st.g2.visible=true;
     for(const tr of TRAINS)tr.g.visible=true;
-    const dc=P.car,ey=dc?1.2:Y(P.z)+eyeH,cp=Math.cos(pitch),ex=dc?P.x+Math.sin(dc.a)*.38-Math.cos(dc.a)*.25:P.x,ez=dc?P.y-Math.cos(dc.a)*.38-Math.sin(dc.a)*.25:P.y;
-    camera.aspect=W/H;camera.fov=72;camera.near=.12;camera.far=500;camera.up.set(0,1,0);
-    camera.position.set(ex,ey,ez);camera.lookAt(ex+Math.cos(P.a)*cp,ey+Math.sin(pitch),ez+Math.sin(P.a)*cp);camera.updateProjectionMatrix();
+    const dc=P.car,ey=dc?1.2:Y(P.z)+S.eyeH,cp=Math.cos(S.pitch),ex=dc?P.x+Math.sin(dc.a)*.38-Math.cos(dc.a)*.25:P.x,ez=dc?P.y-Math.cos(dc.a)*.38-Math.sin(dc.a)*.25:P.y;
+    camera.aspect=S.w/S.h;camera.fov=72;camera.near=.12;camera.far=500;camera.up.set(0,1,0);
+    camera.position.set(ex,ey,ez);camera.lookAt(ex+Math.cos(P.a)*cp,ey+Math.sin(S.pitch),ez+Math.sin(P.a)*cp);camera.updateProjectionMatrix();
     renderer.setRenderTarget(null);renderer.render(scene,camera);updateHud();return;
   }
   camera.near=1;
   // camera: straight down, high enough that `view` metres span the short side of the screen
-  const hgt=view/2/Math.tan(HALF_FOV),ty=Y(P.z);
-  camera.aspect=W/H;camera.fov=2*Math.atan(Math.tan(HALF_FOV)*H/Math.min(W,H))*180/Math.PI;
+  const hgt=S.view/2/Math.tan(HALF_FOV),ty=Y(P.z);
+  camera.aspect=S.w/S.h;camera.fov=2*Math.atan(Math.tan(HALF_FOV)*S.h/Math.min(S.w,S.h))*180/Math.PI;
   camera.far=hgt+90;camera.position.set(CAM.x,ty+hgt,CAM.y);camera.up.set(0,0,-1);camera.lookAt(CAM.x,ty,CAM.y);camera.updateProjectionMatrix();
   const[A,B,f]=views();
   renderer.setRenderTarget(null);
@@ -1902,16 +1903,16 @@ function locBase(){
 }
 const wpEl=document.getElementById('wp'),hpEl=document.getElementById('hp');let lastWp='';
 function updateHud(){
-  const fight=regionAt(P.x)===2&&P.z===0&&!FP;
+  const fight=regionAt(P.x)===2&&P.z===0&&!S.fp;
   hpEl.style.display=fight?'block':'none';if(fight)hpEl.firstChild.style.width=Math.max(0,A.hp)+'%';
   const ap=aimedPress();
-  const fpTip=!FP?'':ap?ap.tip()+'  ·  click':P.sit?(P.sit.horiz===undefined?'Sitting  ·  walk forward to stand up':'Sitting  ·  A / D to shuffle along, walk forward to stand up'):MYDOOR.grab?(MYDOOR.open<=0&&MYDOOR.h<.85?'drag down to unlatch':'drag sideways to swing the door'):
+  const fpTip=!S.fp?'':ap?ap.tip()+'  ·  click':P.sit?(P.sit.horiz===undefined?'Sitting  ·  walk forward to stand up':'Sitting  ·  A / D to shuffle along, walk forward to stand up'):MYDOOR.grab?(MYDOOR.open<=0&&MYDOOR.h<.85?'drag down to unlatch':'drag sideways to swing the door'):
     aimingAtDoor()?(MYDOOR.open>0?'Door  ·  hold click and drag sideways':'Door  ·  hold click, drag down to unlatch, then sideways'):'';
   const lx=P.x-STATIONS[regionAt(P.x)].dx;
   const dcar=aimedCarDoor(),nc=nearCar();
-  const wp=P.car?(FP?(P.car.door>.6?'Door open  ·  W or A to get out, or drag it shut to drive':dcar?'Door  ·  hold click and drag to open it (when stopped) and get out':'W / S to drive and brake, A / D to steer  ·  to get out: stop and open the door')
+  const wp=P.car?(S.fp?(P.car.door>.6?'Door open  ·  W or A to get out, or drag it shut to drive':dcar?'Door  ·  hold click and drag to open it (when stopped) and get out':'W / S to drive and brake, A / D to steer  ·  to get out: stop and open the door')
       :'The car follows the pointer: further away is faster, bring it back to brake  ·  click when stopped to get out'):
-    FP&&dcar?(dcar.door>.6?'Door open  ·  turn round and back into the seat':'Car door  ·  hold click and drag to open'):FP&&nc&&nc.door>.6?'Back into the driver\'s seat to get in':!FP&&nc?'Walk up to the driver\'s door and step in':P.boat?(BOAT.docked?'Aboard  ·  hold click to take the tiller: forward for throttle, sideways to steer':'Tiller  ·  sideways steers, forward / back is the throttle  ·  drift in by the pier to tie up'):fpTip?fpTip:P.z===-1&&!gatesOpen()&&lx>118.6&&lx<121?'The gates are locked  ·  get a ticket from the machines':P.z===-1&&P.ticket&&lx>113.5&&lx<119&&P.y<104.5?'You have a ticket':regionAt(P.x)!==2||P.z!==0?'':FP?'Weapons work in top-down view (F)':A.msg>0?'You were knocked out  ·  back outside the gate':
+    S.fp&&dcar?(dcar.door>.6?'Door open  ·  turn round and back into the seat':'Car door  ·  hold click and drag to open'):S.fp&&nc&&nc.door>.6?'Back into the driver\'s seat to get in':!S.fp&&nc?'Walk up to the driver\'s door and step in':P.boat?(BOAT.docked?'Aboard  ·  hold click to take the tiller: forward for throttle, sideways to steer':'Tiller  ·  sideways steers, forward / back is the throttle  ·  drift in by the pier to tie up'):fpTip?fpTip:P.z===-1&&!gatesOpen()&&lx>118.6&&lx<121?'The gates are locked  ·  get a ticket from the machines':P.z===-1&&P.ticket&&lx>113.5&&lx<119&&P.y<104.5?'You have a ticket':regionAt(P.x)!==2||P.z!==0?'':S.fp?'Weapons work in top-down view (F)':A.msg>0?'You were knocked out  ·  back outside the gate':
     !A.cur?'Step on a pad to take a weapon  ·  kills '+A.kills:
     A.cur.name+': '+A.cur.help+(A.cur.id==='fire'?'  ·  fuel '+Math.round(A.fuel*100)+'%':'')+'  ·  kills '+A.kills;
   if(wp!==lastWp){lastWp=wp;wpEl.textContent=wp;wpEl.style.display=wp?'block':'none'}
@@ -1923,27 +1924,27 @@ function updateHud(){
       if(cols===2)for(let i=0;i<fs.length;i+=2)[fs[i],fs[i+1]]=[fs[i+1],fs[i]];   // read left-to-right, top floor at the top
       for(const f of fs){const b=document.createElement('button');b.dataset.f=f;b.textContent=f+1;elevEl.appendChild(b)}}
   }
-  elevEl.style.display=hudLift&&!FP?'grid':'none';   // first person uses the buttons in the car instead
-  if(P.lift){const l=P.lift;for(const b of elevEl.children){const f=+b.dataset.f;b.classList.toggle('on',l.target===f||pendingBtn===f||(l.target===null&&l.z===f))}}
+  elevEl.style.display=hudLift&&!S.fp?'grid':'none';   // first person uses the buttons in the car instead
+  if(P.lift){const l=P.lift;for(const b of elevEl.children){const f=+b.dataset.f;b.classList.toggle('on',l.target===f||S.pendingBtn===f||(l.target===null&&l.z===f))}}
 }
 
 // ---------------------------------------------------------------- input
 // Desktop: click to lock the pointer, then the mouse drives. Touch: drag like a trackpad.
 const hintEl=document.getElementById('hint'),TOUCH=matchMedia('(pointer:coarse)').matches;
 const locked=()=>document.pointerLockElement===cv;
-function showHint(){hintEl.textContent=TOUCH?(FP?'Drag to look around':'Drag to move the pointer'):FP?'Click to look  ·  WASD to walk, Shift to run  ·  click things to use them  ·  Esc to let go':'Click to take the mouse  ·  Esc to let go  ·  in a lift: scroll or 1–0';hintEl.style.opacity=locked()?0:1}
+function showHint(){hintEl.textContent=TOUCH?(S.fp?'Drag to look around':'Drag to move the pointer'):S.fp?'Click to look  ·  WASD to walk, Shift to run  ·  click things to use them  ·  Esc to let go':'Click to take the mouse  ·  Esc to let go  ·  in a lift: scroll or 1–0';hintEl.style.opacity=locked()?0:1}
 document.addEventListener('pointerlockchange',showHint);
-const liftStep=d=>{const l=P.lift;if(l&&!FP)pendingBtn=clamp((pendingBtn??l.target??Math.round(l.z))+d,l.zmin,l.zmax)};
+const liftStep=d=>{const l=P.lift;if(l&&!S.fp)S.pendingBtn=clamp((S.pendingBtn??l.target??Math.round(l.z))+d,l.zmin,l.zmax)};
 const fpEl=document.getElementById('fp');
-function setFP(on){FP=on;pitch=0;fpEl.textContent=FP?'Top-down view (F)':'First person (F)';ptrEl.style.display=FP?'none':'';document.getElementById('xh').style.display=FP?'block':'none';showHint()}
-fpEl.addEventListener('click',()=>{setFP(!FP);fpEl.blur()});
+function setFP(on){S.fp=on;S.pitch=0;fpEl.textContent=S.fp?'Top-down view (F)':'First person (F)';ptrEl.style.display=S.fp?'none':'';document.getElementById('xh').style.display=S.fp?'block':'none';showHint()}
+fpEl.addEventListener('click',()=>{setFP(!S.fp);fpEl.blur()});
 document.getElementById('reset').addEventListener('click',e=>{resetSave();e.target.blur()});
 setFP(false);
 addEventListener('keyup',e=>keys.delete(e.code));addEventListener('blur',()=>keys.clear());
 addEventListener('keydown',e=>{
-  keys.add(e.code);if(e.code==='KeyF'&&!e.repeat)setFP(!FP);
+  keys.add(e.code);if(e.code==='KeyF'&&!e.repeat)setFP(!S.fp);
   if(e.code==='KeyR'&&e.shiftKey&&!e.repeat)resetSave();
-  if(/^Digit\d$/.test(e.code)&&P.lift&&!FP)pendingBtn=(+e.code.slice(5)+9)%10;   // 1..9, and 0 for the tenth floor
+  if(/^Digit\d$/.test(e.code)&&P.lift&&!S.fp)S.pendingBtn=(+e.code.slice(5)+9)%10;   // 1..9, and 0 for the tenth floor
   if(e.code==='ArrowUp'||e.code==='ArrowDown'){liftStep(e.code==='ArrowUp'?1:-1);e.preventDefault()}});
 addEventListener('wheel',e=>{liftStep(e.deltaY<0?1:-1);e.preventDefault()},{passive:false});
 let finger=null;
@@ -1960,10 +1961,10 @@ addEventListener('pointerup',e=>{if(e.pointerType==='mouse'&&e.button===0)A.down
 cv.addEventListener('pointerup',endFinger);cv.addEventListener('pointercancel',endFinger);
 addEventListener('contextmenu',e=>e.preventDefault());
 document.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
-elevEl.addEventListener('pointerdown',e=>{e.preventDefault();const f=e.target.dataset&&e.target.dataset.f;if(P.lift&&f!==undefined)pendingBtn=+f});
+elevEl.addEventListener('pointerdown',e=>{e.preventDefault();const f=e.target.dataset&&e.target.dataset.f;if(P.lift&&f!==undefined)S.pendingBtn=+f});
 
 // ---------------------------------------------------------------- loop
 let last=performance.now();
 function frame(now){const dt=clamp((now-last)/1000,0,.05);last=now;tick(dt);render();requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
-window.G={P,A,DCARS,exitCar,enterCar,PEDS,CARS,BOAT,resetSave,MYDOOR,CHAIRS,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
+window.G={P,A,DCARS,exitCar,enterCar,PEDS,CARS,BOAT,resetSave,MYDOOR,CHAIRS,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{S.pendingBtn=f},get view(){return S.view},get bIn(){return S.bIn}};
