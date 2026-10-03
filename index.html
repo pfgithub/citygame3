@@ -52,14 +52,14 @@ const SPRINT=1.7;
 
 // ---------------------------------------------------------------- colliders
 const COL=[];
-function box(x,y,w,h,za=-.5,zb=.5){COL.push({x,y,w,h,za,zb})}
+function box(x,y,w,h,za=-.5,zb=.5,opq=false){COL.push({x,y,w,h,za,zb,opq})}   // opq: blocks line of sight
 function circ(cx,cy,r,za=-.5,zb=.5){COL.push({cx,cy,r,za,zb})}
 
 // ---------------------------------------------------------------- floors
 const FL={};
 for(const z of[-2,-1,0,1,2])FL[z]={z,walls:[],furn:[]};
-function fwall(z,x,y,w,h){FL[z].walls.push({x,y,w,h});box(x,y,w,h,z-.5,z+.5)}
-function ffurn(z,x,y,w,h,color,o={}){FL[z].furn.push({x,y,w,h,color,...o});if(!o.ghost)box(x,y,w,h,z-.5,z+.5)}
+function fwall(z,x,y,w,h,opq=true){FL[z].walls.push({x,y,w,h});box(x,y,w,h,z-.5,z+.5,opq)}
+function ffurn(z,x,y,w,h,color,o={}){FL[z].furn.push({x,y,w,h,color,...o});if(!o.ghost)box(x,y,w,h,z-.5,z+.5,!!o.opq)}
 function fround(z,cx,cy,r,color,o={}){FL[z].furn.push({cx,cy,r,color,...o});if(!o.ghost)circ(cx,cy,r,z-.5,z+.5)}
 
 // Stairs: a rectangle; dir is the direction of ascent. The player's z is a pure
@@ -68,7 +68,7 @@ const STAIRS=[];
 function addStair(x,y,w,h,dir,zl,zh){
   const s={x,y,w,h,dir,zl,zh,sides:[]};STAIRS.push(s);
   const t=.2,vert=dir==='N'||dir==='S';
-  const side=(X,Y,Wd,Hd)=>{s.sides.push({x:X,y:Y,w:Wd,h:Hd});box(X,Y,Wd,Hd,zl-.5,zh+.5)};
+  const side=(X,Y,Wd,Hd)=>{s.sides.push({x:X,y:Y,w:Wd,h:Hd});box(X,Y,Wd,Hd,zl-.5,zh+.5,true)};
   if(vert){side(x-t,y-t,t,h+2*t);side(x+w,y-t,t,h+2*t)}else{side(x-t,y-t,w+2*t,t);side(x-t,y+h,w+2*t,t)}
   const ends={N:[x,y-t,w,t],S:[x,y+h,w,t],W:[x-t,y,t,h],E:[x+w,y,t,h]};
   const opp={N:'S',S:'N',E:'W',W:'E'};
@@ -93,7 +93,7 @@ for(const z of[0,1,2]){
 }
 const stA=addStair(74,49,1.4,6,'N',0,1);
 const stB=addStair(75.6,49,1.4,6,'S',1,2);
-ffurn(0,75.6,49,1.4,6,'#3a3d44');          // solid under the upper flight
+ffurn(0,75.6,49,1.4,6,'#3a3d44',{opq:1});          // solid under the upper flight
 ffurn(2,74,49,1.4,6,'#22252a');            // void above the lower flight
 
 // floor 0: lobby
@@ -139,7 +139,7 @@ for(let k=0;k<3;k++)ffurn(-1,114.2+k*1.5,102,1.1,.7,'#3f6fb0');
 ffurn(-1,104,108,.5,3,'#e9e4d6');ffurn(-1,124,102,6,.35,'#e9e4d6');
 ffurn(-1,105.5,116.3,2,.6,'#7a6248');ffurn(-1,109,116.3,2,.6,'#7a6248');
 const PLAT={x:100,y:107,w:90,h:13};
-fwall(-2,100,106.8,90,.2);fwall(-2,100,120,90,.2);fwall(-2,99.7,106.8,.3,13.4);fwall(-2,190,106.8,.3,13.4);
+fwall(-2,100,106.8,90,.2,false);fwall(-2,100,120,90,.2,false);fwall(-2,99.7,106.8,.3,13.4);fwall(-2,190,106.8,.3,13.4);
 for(let x=106;x<188;x+=9){if(x>124&&x<141)continue;
   ffurn(-2,x-.3,109.6,.6,.6,'#6f757d');ffurn(-2,x-.3,116.8,.6,.6,'#6f757d')}
 for(const x of[108,152,170])ffurn(-2,x,113.2,2.2,.6,'#7a6248');
@@ -151,11 +151,10 @@ const ROOFC=['#9a8f84','#8b949c','#a39a8a','#7f8791','#b0a595','#8a8f86','#9c8a8
 function roofDetails(x,y,w,h){const d=[];const n=Math.floor(w*h/260)+2;
   for(let i=0;i<n;i++){const k=rnd();const dw=k<.6?rr(1.4,2.6):rr(3,5),dh=k<.6?rr(1.4,2.6):rr(1.5,2.5);
     d.push({x:rr(x+2,x+w-2-dw),y:rr(y+2,y+h-2-dh),w:dw,h:dh,c:k<.6?'#c3c6ca':'#a9d3e6'})}return d}
-function building(x,y,w,h){OUT.roofs.push({x,y,w,h,color:pick(ROOFC),details:roofDetails(x,y,w,h)});box(x,y,w,h)}
+function building(x,y,w,h){OUT.roofs.push({x,y,w,h,color:pick(ROOFC),details:roofDetails(x,y,w,h)});box(x,y,w,h,-.5,.5,true)}
 building(-40,40,90,26);building(-40,-40,80,76);building(44,-40,42,82);
 building(-40,86,82,30);building(46,86,40,26);building(-40,120,66,80);building(30,116,56,84);
 building(140,86,100,28);building(104,116,44,84);building(152,118,88,82);
-const OFFROOF={...OFFICE,color:'#8f97a1',details:roofDetails(54,46,28,15)};
 const PARK={x:104,y:0,w:96,h:66}, PLAZA={x:104,y:86,w:32,h:26};
 const PATHS=[[120,66,120,50],[120,50,150,33],[172,66,172,50],[172,50,150,33],[104,32,150,33],
   [150,33,150,0],[150,33,168,24],[120,50,112,14],[112,14,150,8],[150,8,186,34],[186,34,172,50]];
@@ -304,11 +303,57 @@ const vis=(x,y,w,h)=>x<VB.x1&&x+w>VB.x0&&y<VB.y1&&y+h>VB.y0;
 
 // Draw a group at a given opacity. Partial opacity goes through an offscreen
 // buffer so overlapping shapes inside the group don't show through each other.
-function layer(alpha,fn){
+function group(alpha,poly,fn){
   if(alpha<.004)return;
-  if(alpha>.996){ctx.setTransform(S,0,0,S,TX,TY);fn(ctx);return}
-  octx.setTransform(1,0,0,1,0,0);octx.clearRect(0,0,W,H);octx.setTransform(S,0,0,S,TX,TY);fn(octx);
-  ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=alpha;ctx.drawImage(off,0,0);ctx.globalAlpha=1;
+  const clip=()=>{ctx.setTransform(S,0,0,S,TX,TY);ctx.beginPath();ctx.moveTo(poly[0],poly[1]);
+    for(let i=2;i<poly.length;i+=2)ctx.lineTo(poly[i],poly[i+1]);ctx.closePath();ctx.clip()};
+  ctx.save();clip();
+  if(alpha>.996)fn(ctx);
+  else{octx.setTransform(1,0,0,1,0,0);octx.clearRect(0,0,W,H);octx.setTransform(S,0,0,S,TX,TY);fn(octx);
+    ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=alpha;ctx.drawImage(off,0,0);ctx.globalAlpha=1}
+  ctx.restore();
+}
+// Line of sight. Casts rays from (ox,oy) at every corner of every opaque
+// collider that exists on level zq and returns the visible polygon as a flat
+// [x,y,...] list. Rays sink a little way into whatever they hit so the wall
+// (or the edge of a building) that stops the view is itself visible.
+const SEG=[],ANG=[];
+function visPoly(ox,oy,zq){
+  const x0=VB.x0-2,y0=VB.y0-2,x1=VB.x1+2,y1=VB.y1+2;
+  SEG.length=0;ANG.length=0;
+  const rect=(x,y,w,h,pen)=>{const X=x+w,Y=y+h;
+    SEG.push(x,y,X,y,pen, X,y,X,Y,pen, X,Y,x,Y,pen, x,Y,x,y,pen);
+    for(const[px,py]of[[x,y],[X,y],[X,Y],[x,Y]]){const a=Math.atan2(py-oy,px-ox);ANG.push(a-1e-4,a,a+1e-4)}};
+  rect(x0,y0,x1-x0,y1-y0,0);
+  for(const c of COL){
+    if(!c.opq||zq<c.za||zq>=c.zb||c.x>x1||c.x+c.w<x0||c.y>y1||c.y+c.h<y0)continue;
+    rect(c.x,c.y,c.w,c.h,Math.min(c.w,c.h,1.5));
+  }
+  if(zq>-.5&&zq<2.5){const d=CARDOOR,hw=doorHalf(doorOpen(zq));
+    rect(d.x,d.y,hw,d.h,.2);rect(d.x+d.w-hw,d.y,hw,d.h,.2)}
+  ANG.sort((a,b)=>a-b);
+  const out=[];
+  for(const a of ANG){
+    const dx=Math.cos(a),dy=Math.sin(a);let best=1e9,pen=0;
+    for(let i=0;i<SEG.length;i+=5){
+      const ax=SEG[i],ay=SEG[i+1],ex=SEG[i+2]-ax,ey=SEG[i+3]-ay,den=dx*ey-dy*ex;
+      if(den>-1e-12&&den<1e-12)continue;
+      const t=((ax-ox)*ey-(ay-oy)*ex)/den;if(t<0||t>=best)continue;
+      const u=((ax-ox)*dy-(ay-oy)*dx)/den;if(u<-1e-9||u>1+1e-9)continue;
+      best=t;pen=SEG[i+4];
+    }
+    if(best<1e9)out.push(ox+dx*(best+pen),oy+dy*(best+pen));
+  }
+  return out;
+}
+// Everything that exists on one level.
+function drawLevel(g,L){
+  if(L===0){drawOutdoor(g);drawOfficeFloor(g,0)}
+  else if(L>0)drawOfficeFloor(g,L);
+  else if(L===-1)drawConcourse(g);
+  else drawPlatform(g);
+  for(const s of STAIRS)if(s.zl===L||s.zh===L)drawStair(g,s);
+  if(L===0){g.globalAlpha=clamp(1+P.z*6);if(g.globalAlpha>.004)drawSubwayCover(g);g.globalAlpha=1;drawCanopies(g,1)}
 }
 function text(g,s,x,y,size,color,rot=0,align='center'){g.save();g.translate(x,y);g.rotate(rot);g.scale(size/20,size/20);
   g.font='600 20px system-ui,sans-serif';g.textAlign=align;g.textBaseline='middle';g.fillStyle=color;g.fillText(s,0,0);g.restore()}
@@ -383,7 +428,7 @@ function drawOutdoor(g){
     g.fillStyle='#33363c';disc(g,l.x,l.y,.14);g.fill()}
   // office base & entrance
   g.fillStyle='#1d1f24';g.fillRect(OFFICE.x,OFFICE.y,OFFICE.w,OFFICE.h);
-  g.fillStyle='#8c3f37';g.fillRect(66.8,66,2.4,1.5);
+  g.fillStyle='#8c3f37';g.fillRect(66.8,66,2.4,1.5);text(g,'OFFICE',68,66.75,.48,'rgba(255,255,255,.75)');
   // roofs
   g.fillStyle='rgba(0,0,0,.22)';for(const b of OUT.roofs)if(vis(b.x,b.y,b.w+2,b.h+2))g.fillRect(b.x+1.4,b.y+1.4,b.w,b.h);
   for(const b of OUT.roofs)if(vis(b.x,b.y,b.w,b.h))drawRoof(g,b);
@@ -420,31 +465,30 @@ function drawOfficeFloor(g,z){
   g.fillStyle='rgba(240,182,58,.35)';g.fillRect(70.3,49,1.6,1.1);
   text(g,'LIFT',71.1,49.55,.42,'rgba(40,44,52,.7)');
   text(g,String(z+1),79.6,56,3.2,'rgba(0,0,0,.07)');
-  g.fillStyle='#1b1d21';g.fillRect(CAR.x,CAR.y,CAR.w,CAR.h+.2);
+  const carHere=Math.abs(CAR.z-z)<.01||(P.inCar&&Math.round(CAR.z)===z);
+  if(carHere)drawCar(g);else{g.fillStyle='#1b1d21';g.fillRect(CAR.x,CAR.y,CAR.w,CAR.h+.2)}
   drawFurn(g,F);drawWalls(g,F);
   // windows
   g.fillStyle='#a9d6ec';
   for(let x=o.x+2;x<o.x+o.w-2;x+=3){g.fillRect(x,o.y+.08,1.9,.14);if(z>0||x<65||x>70)g.fillRect(x,o.y+o.h-.22,1.9,.14)}
   for(let y=o.y+2;y<o.y+o.h-2;y+=3){g.fillRect(o.x+.08,y,.14,1.9);g.fillRect(o.x+o.w-.22,y,.14,1.9)}
   if(z===0){g.fillStyle='#a9d6ec';g.fillRect(66.9,65.75,.1,.9);g.fillRect(69,65.75,.1,.9)}
-  drawCarDoor(g,Math.abs(CAR.z-z)<.01?CAR.door:0);
+  drawCarDoor(g,doorOpen(z));
 }
+const doorOpen=z=>Math.abs(CAR.z-z)<.01?CAR.door:0;
+const doorHalf=o=>CARDOOR.w/2*(1-o*.92);
 function drawCarDoor(g,o){
-  const d=CARDOOR,hw=d.w/2*(1-o*.92);
+  const d=CARDOOR,hw=doorHalf(o);
   g.fillStyle='#aeb4bc';g.fillRect(d.x,d.y+.04,hw,d.h-.08);g.fillRect(d.x+d.w-hw,d.y+.04,hw,d.h-.08);
   g.fillStyle='#6d737b';g.fillRect(d.x+hw-.03,d.y+.04,.03,d.h-.08);g.fillRect(d.x+d.w-hw,d.y+.04,.03,d.h-.08);
 }
-function drawCar(g,full){
+function drawCar(g){
   const c=CAR;
   g.fillStyle='#c9cdd3';g.fillRect(c.x,c.y,c.w,c.h+.2);
   g.strokeStyle='rgba(0,0,0,.12)';g.lineWidth=.04;g.strokeRect(c.x+.25,c.y+.25,c.w-.5,c.h-.5);
   g.fillStyle='#8f959d';g.fillRect(c.x+.08,c.y+.08,c.w-.16,.1);g.fillRect(c.x+.08,c.y+.3,.1,c.h-.6);g.fillRect(c.x+c.w-.18,c.y+.3,.1,c.h-.6);
   const lab=CAR.moving?(CAR.target>CAR.z?'▲ ':'▼ ')+(Math.round(CAR.z)+1):String(Math.round(CAR.z)+1);
   text(g,lab,c.x+c.w/2,c.y+.75,.5,'rgba(30,34,40,.6)');
-  if(full){g.fillStyle=C.wall;
-    g.fillRect(c.x-.2,c.y-.3,c.w+.4,.3);g.fillRect(c.x-.2,c.y-.3,.2,c.h+.7);g.fillRect(c.x+c.w,c.y-.3,.2,c.h+.7);
-    g.fillRect(c.x-.2,c.y+c.h,.7,.2);g.fillRect(c.x+c.w-.5,c.y+c.h,.7,.2);
-    drawCarDoor(g,CAR.door)}
 }
 function drawStair(g,s){
   const vert=s.dir==='N'||s.dir==='S',L=vert?s.h:s.w,Wd=vert?s.w:s.h;
@@ -538,28 +582,17 @@ function render(){
   S=Math.min(W,H)/view;TX=W/2-P.x*S;TY=H/2-P.y*S;
   VB.x0=-TX/S;VB.y0=-TY/S;VB.x1=(W-TX)/S;VB.y1=(H-TY)/S;
   ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle=C.dark;ctx.fillRect(0,0,W,H);
-  // Floors crossfade over a short stretch near the top of a flight (80%..90% of
-  // the way up) rather than across its whole length.
-  let z=P.z;
-  for(const s of STAIRS)if(z>s.zl&&z<s.zh)z=lerp(s.zl,s.zh,clamp(((z-s.zl)/(s.zh-s.zl)-.8)/.1));
-  const fa=l=>clamp(1-Math.abs(z-l));
-  const gOut=z<0?clamp(1+z):Math.max(.28,1-z);
-  layer(gOut,drawOutdoor);
-  layer(fa(-2),drawPlatform);
-  layer(fa(-1),drawConcourse);
-  for(const l of[0,1,2])layer(fa(l),g=>drawOfficeFloor(g,l));
-  for(const s of STAIRS)layer(z<s.zl?clamp(1-(s.zl-z)):z>s.zh?clamp(1-(z-s.zh)):1,g=>drawStair(g,s));
-  layer(gOut*clamp(1+P.z*6),drawSubwayCover);
-  if(!P.inCar)layer(CAR.door*clamp(1-Math.abs(z-CAR.z)),g=>drawCar(g,false));
-  layer((1-bIn)*gOut,g=>{g.fillStyle='rgba(0,0,0,.22)';g.fillRect(OFFICE.x+1.4,OFFICE.y+OFFICE.h,OFFICE.w,1.4);g.fillRect(OFFICE.x+OFFICE.w,OFFICE.y+1.4,1.4,OFFICE.h-1.4);
-    drawRoof(g,OFFROOF);text(g,'OFFICE',68,64.3,1.5,'rgba(255,255,255,.55)')});
+  // Only what the player has line of sight to is drawn. On a flight of stairs
+  // there are two views: out of the bottom onto the lower floor and out of the
+  // top onto the upper one.
+  const st=STAIRS.find(s=>P.z>s.zl&&P.z<s.zh);
+  if(st&&!P.inCar){
+    const t=(P.z-st.zl)/(st.zh-st.zl);
+    group(clamp((1-t)/.12),visPoly(P.x,P.y,st.zl),g=>drawLevel(g,st.zl));
+    group(clamp(t/.12),visPoly(P.x,P.y,st.zh),g=>drawLevel(g,st.zh));
+  }else group(1,visPoly(P.x,P.y,P.z),g=>drawLevel(g,Math.round(P.z)));
   ctx.setTransform(S,0,0,S,TX,TY);
-  if(!P.inCar)drawPlayer(ctx);
-  drawCanopies(ctx,gOut>.29?gOut:0);
-  if(P.inCar){ // inside the lift: the world is only as visible as the doors are open
-    ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=1-CAR.door;ctx.fillStyle=C.dark;ctx.fillRect(0,0,W,H);ctx.globalAlpha=1;
-    ctx.setTransform(S,0,0,S,TX,TY);drawCar(ctx,true);drawPlayer(ctx);
-  }
+  drawPlayer(ctx);
   // joystick
   ctx.setTransform(DPR,0,0,DPR,0,0);
   if(joy){let dx=joy.x-joy.ox,dy=joy.y-joy.oy;const d=Math.hypot(dx,dy);if(d>JOYR){dx*=JOYR/d;dy*=JOYR/d}
