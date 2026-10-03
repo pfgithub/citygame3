@@ -27,7 +27,7 @@
 <body>
 <canvas id="c"></canvas>
 <div id="loc"></div>
-<div id="hint">Drag anywhere to walk &nbsp;·&nbsp; WASD / arrows</div>
+<div id="hint">Drag anywhere to walk &nbsp;·&nbsp; WASD / arrows &nbsp;·&nbsp; Shift to sprint</div>
 <div id="elev"><button data-f="0">1</button><button data-f="1">2</button><button data-f="2">3</button></div>
 <script>
 'use strict';
@@ -47,7 +47,8 @@ function segDist(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1;
 const WORLD={w:200,h:160};
 const R=0.25;                       // player radius (shoulder width 0.5 m)
 const VIEW_OUT=34, VIEW_IN=12;      // metres visible across the short screen side
-const SPEED_IN=2.8;                 // m/s when fully zoomed in; scales with zoom
+const SPEED_IN=3.6;                 // m/s when fully zoomed in; scales with zoom
+const SPRINT=1.7;
 
 // ---------------------------------------------------------------- colliders
 const COL=[];
@@ -281,7 +282,7 @@ function tick(dt){
       if(d>6){const m=Math.min(1,(d-6)/(JOYR-6));ix=dx/d*m;iy=dy/d*m}}
   }
   const mag=Math.hypot(ix,iy);if(mag>1){ix/=mag;iy/=mag}
-  const speed=SPEED_IN*view/VIEW_IN;
+  const speed=SPEED_IN*view/VIEW_IN*(keys.has('ShiftLeft')||keys.has('ShiftRight')?SPRINT:1);
   if(mag>.01){
     if(!moved){moved=true;document.getElementById('hint').style.opacity=0}
     const dist=speed*dt,n=Math.max(1,Math.ceil(dist/.08));
