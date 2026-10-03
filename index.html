@@ -1207,6 +1207,20 @@ for(const l of LIFTS){
     else{const mb=new MB();mb.box(d.x,d.y+.04,d.w,d.h-.08,Y(d.z)+.03,Y(d.z)+2.1,'#6b4a32','#54392a');g.add(mb.mesh())}}
 }
 
+// Lids over the flats, for the top-down view: other people's homes are never seen into, and
+// the player's own is covered until its door opens.
+const TOPONLY=[];let MYLID=null;
+{const b=BUILDINGS[1],N=[['01',22.3,44.3,7.5,9.5],['06',41.2,44.3,4.5,9.5]],S=[['02',22.3,5.7],['03',28.2,5.8],['04',34.2,5.8],['05',40.2,5.5]];
+  for(let z=0;z<=TTOP;z++){const mb=new MB(),y=Y(z)+WALL_H+.05;
+    for(const[id,x,yy,w,h]of[...N,...S.map(([id,x,w])=>[id,x,56,w,9.7])]){
+      if(z===0&&(id==='03'||id==='04'))continue;
+      if(z===MYFLAT.z&&id===MYFLAT.id){
+        MYLID=new THREE.Mesh(UNIT,new THREE.MeshLambertMaterial({color:'#6c6f77',transparent:true}));
+        setBox(MYLID,x,yy,w,h,y,y+.1);b.levels[z].add(MYLID);continue}
+      mb.box(x,yy,w,h,y,y+.1,'#4b4e55','#6c6f77')}
+    const m=mb.mesh();b.levels[z].add(m);TOPONLY.push(m)}
+}
+
 // ---- subway
 const TUNNEL=new THREE.Group();scene.add(TUNNEL);
 for(const st of STATIONS){
@@ -1371,6 +1385,8 @@ function render(){
     const mt=c.m.material,tr=a<.995;mt.opacity=a;
     if(mt.transparent!==tr){mt.transparent=tr;mt.depthWrite=!tr;mt.needsUpdate=true}}   // three bakes "opaque" into the shader, so a switch needs a rebuild
   for(const m of FPONLY)m.visible=FP;
+  for(const m of TOPONLY)m.visible=!FP;
+  {const home=P.z===MYFLAT.z&&inRect(P.x,P.y,MYRECT),o=home?0:1-MYDOOR.open;MYLID.material.opacity=o;MYLID.visible=!FP&&o>.01}
   scene.background=FP?SKY:NIGHT;   // underground is fully roofed over, so the sky only shows up the entrance stairs
   if(FP){ // everything exists at once, seen from eye height
     OUTG.visible=TUNNEL.visible=true;
