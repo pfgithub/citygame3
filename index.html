@@ -273,6 +273,8 @@ function buildDyn(){
     if(!FP&&!P.ticket&&lx>114&&lx<118.5&&P.y<103.6)P.ticket=true;        // top-down: walking up to a machine buys one
     if(!gatesOpen())for(const g of GATES)if(Math.abs(g.cx-P.x)<3)DYN.push({x:g.cx-.1,y:g.y,w:.2,h:.8,za:-1.5,zb:-.5});
   }else if(P.z<=-1.5)P.paid=true;else P.paid=false;
+  if(!BOAT.docked)DYN.push({x:622.9,y:47,w:.2,h:3,za:-.5,zb:.5});   // no boat at the berth: the gap in the rail is roped off
+  DYN.push({x:623.4,y:45.6,w:.2,h:1.4,za:-.5,zb:.5},{x:623.4,y:50,w:.2,h:1.4,za:-.5,zb:.5});
   if(P.z>-1.5)return;
   for(const tr of TRAINS){if(Math.abs(tr.x+TL/2-P.x)>TL)continue;const p=trainParts(tr);DYN.push(...p.walls);for(const k of[0,1])if(sideOpen(tr,k)<.8)DYN.push(...p.doors[k])}
   STATIONS.forEach((st,si)=>{for(let k=0;k<2;k++)if(dockedDoor(si,k)<.8)
@@ -337,7 +339,7 @@ for(const x of[10,23,29.5,50,63,69.5,116,138,144.5,158,177,190])car(x,79.95);
 // harbour: the surface around the second station
 const HARBOR={x:560,y:42,w:120,h:88},HPLANT=[[590,78,6,1.4],[628,78,6,1.4]],BOLLARDS=[];
 building(520,56,44,90);building(676,56,44,90);building(564,108,50,40);building(618,108,58,40);building(644,82,9,6);
-fenceSeg(564,60,617,60);fenceSeg(623,60,676,60);fenceSeg(617,42,617,60);fenceSeg(623,42,623,60);fenceSeg(617,42,623,42);
+fenceSeg(564,60,617,60);fenceSeg(623,60,676,60);fenceSeg(617,42,617,60);fenceSeg(623,42,623,47);fenceSeg(623,50,623,60);fenceSeg(617,42,623,42);   // (gap in the pier rail where the boat ties up)
 for(let x=570;x<676;x+=8){if(x>612&&x<628)continue;circ(x,61,.22);BOLLARDS.push(x)}
 for(const x of[580,596,640,656])bench(x,63.5,1.8,.6);
 for(const x of[574,598,634,662])lamp(x,73);
@@ -472,7 +474,7 @@ function seatBehind(){
 }
 
 // ---------------------------------------------------------------- state
-const P={ticket:false,paid:false,x:68,y:68.2,z:0,a:-Math.PI/2,lift:null,train:null,walk:0};
+const P={boat:null,ticket:false,paid:false,x:68,y:68.2,z:0,a:-Math.PI/2,lift:null,train:null,walk:0};
 let view=VIEW_OUT,indoor=0,bIn=0,time=0,pendingBtn=null;
 // The player's position is kept across page loads. Only places that will still make sense
 // later are saved: not the inside of a lift or a train, which will have moved on.
@@ -486,13 +488,13 @@ if(Number.isInteger(P.z)&&P.z>=0&&P.z<=TTOP&&inRect(P.x,P.y,TOWER)){
 }
 let savedAt=0;
 function savePosition(){
-  if(P.lift||P.train)return;
+  if(P.lift||P.train||P.boat)return;
   try{localStorage.setItem(SAVE,JSON.stringify({x:+P.x.toFixed(3),y:+P.y.toFixed(3),z:+P.z.toFixed(4),a:+P.a.toFixed(3),t:P.ticket}))}catch(_){}
 }
 // Forget the saved spot and go back to where a new game starts.
 function resetSave(){
   try{localStorage.removeItem(SAVE)}catch(_){}
-  P.x=68;P.y=68.2;P.z=0;P.a=-Math.PI/2;P.lift=P.train=P.sit=null;P.ticket=false;pitch=0;CAM.x=P.x;CAM.y=P.y;A.kx=A.ky=0;A.hp=100;equip(null);
+  P.x=68;P.y=68.2;P.z=0;P.a=-Math.PI/2;P.lift=P.train=P.sit=P.boat=null;P.ticket=false;pitch=0;CAM.x=P.x;CAM.y=P.y;A.kx=A.ky=0;A.hp=100;equip(null);
 }
 addEventListener('pagehide',savePosition);document.addEventListener('visibilitychange',()=>{if(document.hidden)savePosition()});
 // Mouse / finger travel since the last tick, in CSS pixels. input.override is a scripted direction for tests.
@@ -500,6 +502,33 @@ const input={dx:0,dy:0,override:null};
 const keys=new Set();
 let FP=false,pitch=0,eyeH=1.65;                // first-person mode: P.a is the heading, pitch the look up/down
 const CAM={x:P.x,y:P.y};
+
+// ---------------------------------------------------------------- boat
+// A small launch tied up at the harbour pier. Step aboard through the gap in the rail, hold
+// the mouse button to take the tiller: sideways steers, forward and back is the throttle.
+const BOAT={x:624.7,y:48.5,a:-Math.PI/2,v:0,rud:0,thr:0,docked:true,held:false};
+const BERTH={x:624.7,y:48.5,a:-Math.PI/2},WATER={x0:569,y0:24,x1:671,y1:56.5},PIER={x:617,y:42,w:6,h:18};
+function boatPlace(){const b=BOAT,q=P.boat,c=Math.cos(b.a),s=Math.sin(b.a);P.x=b.x+q.lx*c-q.ly*s;P.y=b.y+q.lx*s+q.ly*c}
+function tiller(dx,dy){BOAT.rud=clamp(BOAT.rud+dx*.003,-.7,.7);BOAT.thr=clamp(BOAT.thr-dy*.003,-.4,1)}
+function updateBoat(dt){
+  const b=BOAT,ox=P.x,oy=P.y;
+  if(!P.boat&&b.docked&&P.z===0&&P.x>623.45&&P.x<626&&P.y>45.8&&P.y<51.2){ // stepped off the pier onto the deck
+    const c=Math.cos(b.a),s=Math.sin(b.a),dx=P.x-b.x,dy=P.y-b.y;P.boat={lx:dx*c+dy*s,ly:-dx*s+dy*c}}
+  b.held=!!P.boat&&A.down;
+  if(!b.held){b.rud*=Math.exp(-dt*4);b.thr*=Math.exp(-dt*.6)}       // let go: the tiller centres and the engine idles down
+  if(b.docked){if(b.held&&Math.abs(b.thr)>.08)b.docked=false;else{b.v=0;return}}
+  const a0=b.a;
+  b.v+=(b.thr*7-b.v)*Math.min(1,dt*.8);b.a+=b.v*b.rud*.22*dt;
+  b.x+=Math.cos(b.a)*b.v*dt;b.y+=Math.sin(b.a)*b.v*dt;
+  const w=WATER;if(b.x<w.x0||b.x>w.x1||b.y<w.y0||b.y>w.y1){b.x=clamp(b.x,w.x0,w.x1);b.y=clamp(b.y,w.y0,w.y1);b.v*=.6}
+  {const m=1.5,r=PIER,nx=clamp(b.x,r.x-m,r.x+r.w+m),ny=clamp(b.y,r.y-m,r.y+r.h+m);     // bump off the pier
+    if(nx===b.x&&ny===b.y){const l=b.x-(r.x-m),rr=r.x+r.w+m-b.x,t=b.y-(r.y-m),k=Math.min(l,rr,t);
+      if(k===l)b.x=r.x-m;else if(k===rr)b.x=r.x+r.w+m;else b.y=r.y-m;b.v*=.9}}
+  if(!b.held&&Math.abs(b.v)<1.6&&Math.hypot(b.x-BERTH.x,b.y-BERTH.y)<2.6){ // drifting in by the berth: it ties itself up
+    const k=Math.min(1,dt*2.5);b.x+=(BERTH.x-b.x)*k;b.y+=(BERTH.y-b.y)*k;b.a+=angDiff(BERTH.a,b.a)*k;b.v*=1-k;
+    if(Math.hypot(b.x-BERTH.x,b.y-BERTH.y)<.04&&Math.abs(angDiff(BERTH.a,b.a))<.02){b.x=BERTH.x;b.y=BERTH.y;b.a=BERTH.a;b.v=b.thr=0;b.docked=true}}
+  if(P.boat){boatPlace();if(FP)P.a+=b.a-a0;CAM.x+=P.x-ox;CAM.y+=P.y-oy}   // whoever is aboard goes with it, and so does the camera
+}
 
 // ---------------------------------------------------------------- arena combat
 // Top-down (mouse) mode only. Walking onto a pad takes that weapon.
@@ -748,7 +777,7 @@ function gather(x0,y0,x1,y1){
   }
 }
 function collide(){
-  if(P.sit)return;                        // seated: a bench is solid, and you are on it
+  if(P.sit||P.boat)return;                        // seated: a bench is solid, and you are on it
   for(let it=0;it<4;it++){
     const n=NEAR.length,m=n+DYN.length;
     for(let i=0;i<m;i++){
@@ -879,6 +908,7 @@ function tick(dt){
   if(input.override){const sp=SPEED_IN*view/VIEW_IN*dt;wx=input.override.x*sp;wy=input.override.y*sp}
   else if(FP){ // mouse looks, WASD walks, Shift runs
     if(MYDOOR.grab)doorMouse(input.dx,input.dy);        // a held handle takes the mouse; otherwise it looks around
+    else if(P.boat&&A.down)tiller(input.dx,input.dy);
     else{P.a+=input.dx*.0024;pitch=clamp(pitch-input.dy*.0024,-1.45,1.45)}
     let f=0,r=0;if(keys.has('KeyW'))f+=1;if(keys.has('KeyS'))f-=1;if(keys.has('KeyD'))r+=1;if(keys.has('KeyA'))r-=1;
     if(P.sit){ // seated: settle onto the chair; walking forward stands you up
@@ -893,11 +923,18 @@ function tick(dt){
     }
     const m=Math.hypot(f,r)||1,sp=(keys.has('ShiftLeft')||keys.has('ShiftRight')?8.5:4)*dt/m,c=Math.cos(P.a),sn=Math.sin(P.a);
     wx=(f*c-r*sn)*sp;wy=(f*sn+r*c)*sp;
-  }else{const k=DPR*view/Math.min(W,H);wx=input.dx*k;wy=input.dy*k}
+  }else if(P.boat&&A.down){tiller(input.dx,input.dy);wx=wy=0}
+  else{const k=DPR*view/Math.min(W,H);wx=input.dx*k;wy=input.dy*k}
   let amx=0,amy=0;if(!input.override&&mouseCaptured()){amx=wx;amy=wy;wx=wy=0}
   const hx=wx,hy=wy;                                   // where the player meant to go, before any shove
   if(A.kx||A.ky){wx+=A.kx*dt;wy+=A.ky*dt;const d=Math.exp(-dt*5);A.kx*=d;A.ky*=d;if(Math.hypot(A.kx,A.ky)<.05)A.kx=A.ky=0}
   input.dx=input.dy=0;
+  if(P.boat){ // aboard: you walk about the deck, in the boat's own frame
+    const b=BOAT,q=P.boat,c=Math.cos(b.a),s=Math.sin(b.a);
+    q.lx=clamp(q.lx+wx*c+wy*s,-2.3,2.3);q.ly=clamp(q.ly-wx*s+wy*c,b.docked&&Math.abs(q.lx)<1.25?-2:-.85,.85);wx=wy=0;boatPlace();   // (you can only step off amidships, at the gap in the rail)
+    if(b.docked&&P.x<623.3)P.boat=null;                 // back over the side onto the pier
+  }
+  updateBoat(dt);
   const dist=Math.hypot(wx,wy);
   if(dist>1e-6){ // small steps so nothing is tunnelled through, whatever the speed
     const n=Math.min(6000,Math.ceil(dist/.08));
@@ -1276,7 +1313,7 @@ const CANOPIES=[];
 {
   const subHole=dx=>({x:dx+110,y:92,w:3,h:10});
   OUTG.add(slab({x:-90,y:-90,w:380,h:340},[subHole(0)],0,art(-90,-90,380,340,9,drawOutdoor)));
-  OUTG.add(slab({x:500,y:20,w:240,h:130},[subHole(LINE_D)],0,art(500,20,240,130,9,drawOutdoor)));
+  OUTG.add(slab({x:500,y:-50,w:240,h:200},[subHole(LINE_D)],0,art(500,-50,240,200,9,drawOutdoor)));
   OUTG.add(slab({x:1000,y:-60,w:220,h:220},[subHole(2*LINE_D)],0,art(1000,-60,220,220,9,drawOutdoor)));
   const mb=new MB(),gl=new MB(),hr=mulberry32(5);
   const FAC=['#b9a996','#a7b0b8','#c2b8a3','#9aa3ad','#c9bca8','#a5aa9f','#b39c8f'];
@@ -1496,6 +1533,14 @@ for(const g of GATES){g.pivot=new THREE.Group();g.pivot.position.set(g.cx,Y(-1),
   const mb=new MB();mb.box(-.03,0,.06,.78,.95,1.03,'#c9cdd3');mb.box(-.05,0,.1,.1,.6,1.05,'#8e949c');g.pivot.add(mb.mesh());
   STATIONS[regionAt(g.cx)].g1.add(g.pivot)}
 
+// the boat
+{const g=new THREE.Group(),mb=new MB();
+  mb.box(-2.75,-1.2,5.5,2.4,.0,.04,'#8a6a4a');                                           // deck
+  for(const[x,z,w,d]of[[-2.75,-1.2,5.5,.14],[-2.75,1.06,5.5,.14],[-2.75,-1.2,.14,2.4],[2.61,-1.2,.14,2.4]])mb.box(x,z,w,d,0,.5,'#e9e6df','#c94f3d');
+  mb.box(2.75,-.7,.5,1.4,0,.42,'#e9e6df','#c94f3d');mb.box(3.25,-.3,.35,.6,0,.36,'#e9e6df','#c94f3d');    // bow
+  mb.box(-2.5,-.35,.6,.7,.04,.55,'#3a3d44');                                               // engine
+  g.add(mb.mesh());BOAT.tiller=dynBox(g,'#5a4632');BOAT.g=g;OUTG.add(g)}
+
 // ---- what to show
 // A view is {k, b}: storey k of building b cut open (b=null: nothing cut open,
 // every building shown from outside), or {lift}: only the inside of a lift car.
@@ -1539,6 +1584,8 @@ function render(){
   for(const g of GATES){ // an unlocked arm swings away from you as you come through
     const d=Math.hypot(P.x-g.cx,P.y-g.cy),o=P.z===-1&&gatesOpen()?clamp((1.05-d)/.6):0;
     g.o+=(o-g.o)*.35;g.pivot.rotation.y=(P.x<g.cx?1:-1)*g.o*1.45}
+  {const b=BOAT;b.g.position.set(b.x,Math.sin(time*1.3)*.02,b.y);b.g.rotation.y=-b.a;
+    b.tiller.position.set(-1.55,.75,0);b.tiller.scale.set(1.3,.06,.06);b.tiller.rotation.y=b.rud;b.tiller.visible=true}
   arenaSync();
   if(P.z<-1.5&&time-signT>1){signT=time;for(const st of STATIONS)st.art.paint()}     // platform countdown signs
   if(P.z>-.9)for(const c of CANOPIES){const t=c.t,a=FP?1:lerp(.22,1,clamp((Math.hypot(P.x-t.x,P.y-t.y)-t.r+.4)/1.6));   // canopies fade when the pointer is under them
@@ -1589,6 +1636,7 @@ function locName(){
   if(P.z<-1.5)return sn+' Station · Platform';if(P.z<-.5)return sn+' Station · Concourse';
   if(P.z<-.01)return sn+' Station entrance';
   if(ri===2)return'Arena'+(A.cur?' · '+A.cur.name:'');
+  if(P.boat)return'Harbor  ·  aboard the boat';
   if(ri===1)return P.y<60?'Harbor Pier':P.y<72?'Harbor Quay':'Harbor Square';
   if(inRect(P.x,P.y,OFFICE))return'Office · '+(P.z%1?'Stairs':'Floor '+(Math.round(P.z)+1));
   if(inRect(P.x,P.y,TOWER)){
@@ -1608,7 +1656,7 @@ function updateHud(){
   const fpTip=!FP?'':ap?ap.tip()+'  ·  click':P.sit?(P.sit.horiz===undefined?'Sitting  ·  walk forward to stand up':'Sitting  ·  A / D to shuffle along, walk forward to stand up'):MYDOOR.grab?(MYDOOR.open<=0&&MYDOOR.h<.85?'drag down to unlatch':'drag sideways to swing the door'):
     aimingAtDoor()?(MYDOOR.open>0?'Door  ·  hold click and drag sideways':'Door  ·  hold click, drag down to unlatch, then sideways'):'';
   const lx=P.x-STATIONS[regionAt(P.x)].dx;
-  const wp=fpTip?fpTip:P.z===-1&&!gatesOpen()&&lx>118.6&&lx<121?'The gates are locked  ·  get a ticket from the machines':P.z===-1&&P.ticket&&lx>113.5&&lx<119&&P.y<104.5?'You have a ticket':regionAt(P.x)!==2||P.z!==0?'':FP?'Weapons work in top-down view (F)':A.msg>0?'You were knocked out  ·  back outside the gate':
+  const wp=P.boat?(BOAT.docked?'Aboard  ·  hold click to take the tiller: forward for throttle, sideways to steer':'Tiller  ·  sideways steers, forward / back is the throttle  ·  drift in by the pier to tie up'):fpTip?fpTip:P.z===-1&&!gatesOpen()&&lx>118.6&&lx<121?'The gates are locked  ·  get a ticket from the machines':P.z===-1&&P.ticket&&lx>113.5&&lx<119&&P.y<104.5?'You have a ticket':regionAt(P.x)!==2||P.z!==0?'':FP?'Weapons work in top-down view (F)':A.msg>0?'You were knocked out  ·  back outside the gate':
     !A.cur?'Step on a pad to take a weapon  ·  kills '+A.kills:
     A.cur.name+': '+A.cur.help+(A.cur.id==='fire'?'  ·  fuel '+Math.round(A.fuel*100)+'%':'')+'  ·  kills '+A.kills;
   if(wp!==lastWp){lastWp=wp;wpEl.textContent=wp;wpEl.style.display=wp?'block':'none'}
@@ -1663,7 +1711,7 @@ elevEl.addEventListener('pointerdown',e=>{e.preventDefault();const f=e.target.da
 let last=performance.now();
 function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;tick(dt);render();requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
-window.G={P,A,resetSave,MYDOOR,CHAIRS,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
+window.G={P,A,BOAT,resetSave,MYDOOR,CHAIRS,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
 </script>
 </body>
 </html>
