@@ -273,7 +273,7 @@ function buildDyn(){
     if(!FP&&!P.ticket&&lx>114&&lx<118.5&&P.y<103.6)P.ticket=true;        // top-down: walking up to a machine buys one
     if(!gatesOpen())for(const g of GATES)if(Math.abs(g.cx-P.x)<3)DYN.push({x:g.cx-.1,y:g.y,w:.2,h:.8,za:-1.5,zb:-.5});
   }else if(P.z<=-1.5)P.paid=true;else P.paid=false;
-  if(P.z>-.5&&P.z<.5&&regionAt(P.x)===0)for(const c of CARS){const r=carRect(c);if(Math.abs(r.x+r.w/2-P.x)<12&&Math.abs(r.y+r.h/2-P.y)<12)DYN.push({...r,za:-.5,zb:.5})}
+  if(P.z>-.5&&P.z<.5&&P.x<700)for(const c of CARS){const r=carRect(c);if(Math.abs(r.x+r.w/2-P.x)<12&&Math.abs(r.y+r.h/2-P.y)<12)DYN.push({...r,za:-.5,zb:.5})}
   if(!BOAT.docked)DYN.push({x:622.9,y:47,w:.2,h:3,za:-.5,zb:.5});   // no boat at the berth: the gap in the rail is roped off
   DYN.push({x:623.4,y:45.6,w:.2,h:1.4,za:-.5,zb:.5},{x:623.4,y:50,w:.2,h:1.4,za:-.5,zb:.5});
   if(P.z>-1.5)return;
@@ -304,7 +304,7 @@ function fenceSeg(x1,y1,x2,y2){OUT.fence.push([x1,y1,x2,y2]);
   box(Math.min(x1,x2)-.08,Math.min(y1,y2)-.08,Math.abs(x2-x1)+.16,Math.abs(y2-y1)+.16)}
 fenceSeg(104,66,118,66);fenceSeg(122,66,170,66);fenceSeg(174,66,200,66);
 fenceSeg(104,0,104,30);fenceSeg(104,34,104,66);
-OUT.fence.push([104,0,200,0],[200,0,200,66]);
+OUT.fence.push([104,0,200,0]);fenceSeg(200,0,200,66);
 function tree(x,y,r,solid){OUT.trees.push({x,y,r,c:pick(['#3f7d45','#4a8a4c','#37703f','#558f4a'])});if(solid)circ(x,y,.3)}
 for(let i=0;i<420;i++){
   const x=rr(106,238),y=rr(-38,64),inW=x<200&&y>0,r=rr(2,3.8);
@@ -317,6 +317,7 @@ for(let i=0;i<420;i++){
   if(OUT.trees.some(t=>Math.hypot(t.x-x,t.y-y)<4.4))continue;
   tree(x,y,r,inW);
 }
+for(let i=OUT.trees.length-1;i>=0;i--)if(OUT.trees[i].x>201)OUT.trees.splice(i,1);   // (the land east of the park is built on now)
 function bench(x,y,w,h){OUT.benches.push({x,y,w,h});box(x,y,w,h)}
 for(let k=0;k<6;k++){const a=k*Math.PI/3+.52,bx=FOUNT.x+Math.cos(a)*6.3,by=FOUNT.y+Math.sin(a)*6.3;
   Math.abs(Math.cos(a))>.7?bench(bx-.3,by-.9,.6,1.8):bench(bx-.9,by-.3,1.8,.6)}
@@ -339,7 +340,8 @@ for(const x of[10,23,29.5,50,63,69.5,116,138,144.5,158,177,190])car(x,79.95);
 
 // harbour: the surface around the second station
 const HARBOR={x:560,y:42,w:120,h:88},HPLANT=[[590,78,6,1.4],[628,78,6,1.4]],BOLLARDS=[];
-building(520,56,44,90);building(676,56,44,90);building(564,108,50,40);building(618,108,58,40);building(644,82,9,6);
+pick(ROOFC);roofDetails(520,56,44,90);   // (this block was split to let the avenue through; keeps the random sequence stable)
+building(676,56,44,90);building(564,108,50,40);building(618,108,58,40);building(644,82,9,6);
 fenceSeg(564,60,617,60);fenceSeg(623,60,676,60);fenceSeg(617,42,617,60);fenceSeg(623,42,623,47);fenceSeg(623,50,623,60);fenceSeg(617,42,623,42);   // (gap in the pier rail where the boat ties up)
 for(let x=570;x<676;x+=8){if(x>612&&x<628)continue;circ(x,61,.22);BOLLARDS.push(x)}
 for(const x of[580,596,640,656])bench(x,63.5,1.8,.6);
@@ -425,6 +427,21 @@ fenceSeg(1052,74,1104,74);fenceSeg(1119,74,1168,74);
 for(const[x,y]of[[1060,88],[1160,88],[1060,100],[1160,100]])lamp(x,y);
 circ(1108.6,90.8,.12);
 
+// ---------------------------------------------------------------- harbour road
+// The avenue runs on east from the park to the harbour square: 360 m of street with a
+// building line on both sides and three dead-end alleys.
+{const cr=mulberry32(31);
+  fenceSeg(200,114,200,118);
+  building(520,20,44,46);building(520,86,44,60);
+  const row=(x0,x1,north)=>{let x=x0;while(x<x1-.1){let w=22+Math.floor(cr()*24);if(x1-x-w<18)w=x1-x;const d=32+Math.floor(cr()*16);building(x,north?66-d:86,w,d);x+=w}};
+  row(200.1,300,true);row(308,430,true);row(438,520,true);row(240,350,false);row(358,520,false);
+  fenceSeg(300,40.4,308,40.4);fenceSeg(430,40.4,438,40.4);fenceSeg(350,111.6,358,111.6);
+  const mouth=x=>(x>297&&x<311)||(x>427&&x<441)||(x>347&&x<361);
+  for(let x=214;x<556;x+=14){lamp(x,69.4);lamp(x+7,82.6);if(!mouth(x+7))tree(x+7,68.9,1.9,true);if(!mouth(x))tree(x,83.1,1.9,true)}
+  for(let x=206;x<548;x+=6.4)if(cr()<.42)car(x,70.2);
+  for(let x=209;x<548;x+=6.4)if(cr()<.42)car(x,79.95);
+}
+
 const BUILDINGS=[
   {rect:OFFICE,door:DOORPT,roof:OFFROOF,top:2,awning:'#8c3f37',bIn:0},
   {rect:TOWER,door:TDOORPT,roof:TROOF,top:TTOP,awning:'#3d5a80',bIn:0}];
@@ -509,21 +526,23 @@ const CAM={x:P.x,y:P.y};
 const BARRIERS=[[-.6,66,.6,4],[-.6,82,.6,4],[200,66,.6,4],[200,82,.6,4],[86,-.6,4,.6],[100,-.6,4,.6],[86,160,4,.6],[100,160,4,.6]];
 // Four lanes through one signalled crossroads. `c` is the lane's centre line, `stop` where the
 // front of a car waits. Group 0 is the avenue, group 1 the cross street.
-const LANES=[{ax:'x',dir:1,c:77.8,stop:85.4,sig:0,a:-60,b:260},{ax:'x',dir:-1,c:74.2,stop:104.6,sig:0,a:-60,b:260},
+const LANES=[{ax:'x',dir:1,c:77.8,stop:85.4,sig:0,a:-60,b:558},{ax:'x',dir:-1,c:74.2,stop:104.6,sig:0,a:-60,b:558},
   {ax:'y',dir:1,c:92.5,stop:65.4,sig:1,a:-60,b:220},{ax:'y',dir:-1,c:97.5,stop:86.6,sig:1,a:-60,b:220}];
 const SIG_T=26;
 function sigState(g){const t=time%SIG_T;return g===0?(t<12?'g':t<14?'y':'r'):(t<15?'r':t<23?'g':t<25?'y':'r')}
 const CARS=[];
-{const tr=mulberry32(21);LANES.forEach((ln,li)=>{const n=ln.ax==='x'?4:3;
+{const tr=mulberry32(21);LANES.forEach((ln,li)=>{const n=ln.ax==='x'?7:3;
   for(let i=0;i<n;i++)CARS.push({ln,s:ln.a+(i+tr()*.5)*(ln.b-ln.a)/n,v:8,len:4.3+tr()*.5,col:CARC[Math.floor(tr()*CARC.length)]})})}
 const carRect=c=>c.ln.ax==='x'?{x:c.s-c.len/2,y:c.ln.c-.92,w:c.len,h:1.84}:{x:c.ln.c-.92,y:c.s-c.len/2,w:1.84,h:c.len};
 // Things a driver brakes for besides lights and the car in front: [x,y] spots on the road.
-function roadUsers(){const u=[];if(P.z===0&&regionAt(P.x)===0)u.push(P);if(typeof PEDS!=='undefined')for(const q of PEDS)if(q.on)u.push(q);return u}
+function roadUsers(){const u=[];if(P.z===0&&P.x<700)u.push(P);if(typeof PEDS!=='undefined')for(const q of PEDS)if(q.on)u.push(q);return u}
 function updateTraffic(dt){
   const users=roadUsers();
   for(const c of CARS){const ln=c.ln,d=ln.dir,front=c.s+d*c.len/2;
     let free=1e9;                                                       // clear road ahead of the bumper, metres
     for(const o of CARS)if(o!==c&&o.ln===ln){const g=(o.s-c.s)*d-(o.len+c.len)/2;if(g>-1&&g<free)free=g-1.6}
+    if(ln===LANES[0])free=Math.min(free,ln.b-c.s);                      // road ends: slow to the turning place
+    if(c.turn>0)free=0;
     const st=sigState(ln.sig),ds=(ln.stop-front)*d;
     if(ds>-.5&&(st==='r'||(st==='y'&&ds>c.v*c.v/12)))free=Math.min(free,ds-.4);
     for(const u of users){const along=((ln.ax==='x'?u.x:u.y)-front)*d,lat=Math.abs((ln.ax==='x'?u.y:u.x)-ln.c);
@@ -531,22 +550,26 @@ function updateTraffic(dt){
     const want=Math.min(11,Math.sqrt(2*5*Math.max(0,free)));            // the speed it could still stop from
     c.v+=clamp(want-c.v,-12*dt,3*dt);if(c.v<.05&&want<.05)c.v=0;
     c.s+=d*c.v*dt;
-    if(d>0&&c.s>ln.b)c.s-=ln.b-ln.a;else if(d<0&&c.s<ln.a)c.s+=ln.b-ln.a;
+    if(ln.ax==='x'){ // the avenue is a loop: turn round at the harbour end, and (out of sight) at the west end
+      if(d>0&&c.s>=ln.b-.05){if(CARS.some(o=>o.ln===LANES[1]&&o.s>ln.b-9)){c.s=ln.b-.05;c.v=0}else{c.ln=LANES[1];c.s=ln.b;c.v=0;c.turn=1}}else if(d<0&&c.s<ln.a){c.ln=LANES[0];c.s=ln.a}
+      if(c.turn>0)c.turn=Math.max(0,c.turn-dt/1.6);
+    }else if(d>0&&c.s>ln.b)c.s-=ln.b-ln.a;else if(d<0&&c.s<ln.a)c.s+=ln.b-ln.a;
   }
 }
 
 // ---------------------------------------------------------------- pedestrians
 // People walk a small network of sidewalk and park-path points. `x` marks a way out of the
 // district (they leave and someone else arrives), and crossings wait for the lights.
-const PN={wn:[2,68,'x'],t:[34,68],o:[68,68],nw:[88,68],ne:[102,68],g1:[120,68],g2:[172,68],en:[198,68,'x'],
-  ws:[2,84,'x'],sw:[88,84],se:[102,84],pl:[111.5,84],es:[198,84,'x'],nn:[88,2,'x'],ne2:[102,2,'x'],wg:[102,32],ss:[88,158,'x'],ss2:[102,158,'x'],
+const PN={wn:[2,68,'x'],t:[34,68],o:[68,68],nw:[88,68],ne:[102,68],g1:[120,68],g2:[172,68],en:[198,68],
+  ws:[2,84,'x'],sw:[88,84],se:[102,84],pl:[111.5,84],es:[198,84],a1:[304,68],a1x:[304,43,'x'],a2:[434,68],a2x:[434,43,'x'],b1:[354,84],b1x:[354,109,'x'],hn:[561,68],hs:[561,84],hq:[590,66],hqe:[660,66],hsq:[600,84],hsub:[611.5,91,'x'],nn:[88,2,'x'],ne2:[102,2,'x'],wg:[102,32],ss:[88,158,'x'],ss2:[102,158,'x'],
   td:[34,66.3,'x'],od:[68,66.3,'x'],sub:[111.5,91,'x'],p1:[120,50],p2:[172,50],fw:[143.5,36.5],fe:[156.5,36.5],fn:[150,26.5],pn:[150,6]};
 const PE=[['wn','t'],['t','o'],['o','nw'],['nw','ne',1],['ne','g1'],['g1','g2'],['g2','en'],['ws','sw'],['sw','se',1],['se','pl'],['pl','es'],
   ['nn','nw'],['nw','sw',0],['sw','ss'],['ne2','wg'],['wg','ne'],['ne','se',0],['se','ss2'],['t','td'],['o','od'],['pl','sub'],
+  ['en','a1'],['a1','a2'],['a2','hn'],['a1','a1x'],['a2','a2x'],['es','b1'],['b1','hs'],['b1','b1x'],['hn','hq'],['hq','hqe'],['hq','hsq'],['hs','hsq'],['hsq','hsub'],
   ['g1','p1'],['p1','fw'],['g2','p2'],['p2','fe'],['fw','fe'],['fw','fn'],['fe','fn'],['fn','pn'],['wg','fw']];   // third item: the signal group whose traffic the crossing cuts across
 const PADJ={};for(const k in PN)PADJ[k]=[];
 for(const[a,b,x]of PE){const d=Math.hypot(PN[a][0]-PN[b][0],PN[a][1]-PN[b][1]);PADJ[a].push({to:b,d,x});PADJ[b].push({to:a,d,x})}
-const PEXITS=Object.keys(PN).filter(k=>PN[k][2]),PSEATS=OUT.benches.filter(b=>b.x<300).map(b=>({x:b.x+b.w/2,y:b.y+b.h/2,near:Object.keys(PN).reduce((m,k)=>Math.hypot(PN[k][0]-b.x,PN[k][1]-b.y)<Math.hypot(PN[m][0]-b.x,PN[m][1]-b.y)?k:m),taken:false}));
+const PEXITS=Object.keys(PN).filter(k=>PN[k][2]),PSEATS=OUT.benches.filter(b=>b.x<700).map(b=>({x:b.x+b.w/2,y:b.y+b.h/2,near:Object.keys(PN).reduce((m,k)=>Math.hypot(PN[k][0]-b.x,PN[k][1]-b.y)<Math.hypot(PN[m][0]-b.x,PN[m][1]-b.y)?k:m),taken:false}));
 function pedPath(a,b){ // shortest way through the network
   const dist={[a]:0},prev={},todo=new Set(Object.keys(PN));
   while(todo.size){let u=null;for(const k of todo)if(dist[k]!==undefined&&(u===null||dist[k]<dist[u]))u=k;if(u===null||u===b)break;todo.delete(u);
@@ -561,7 +584,7 @@ function pedGoal(q){
   if(prng()<.3){const free=PSEATS.filter(s=>!s.taken);if(free.length){const st=free[Math.floor(prng()*free.length)];st.taken=true;q.seat=st;q.path=pedPath(q.at,st.near);return}}
   let d;do{d=PEXITS[Math.floor(prng()*PEXITS.length)]}while(d===q.at);q.seat=null;q.path=pedPath(q.at,d);
 }
-for(let i=0;i<28;i++){const at=Object.keys(PN)[Math.floor(prng()*Object.keys(PN).length)];
+for(let i=0;i<46;i++){const at=Object.keys(PN)[Math.floor(prng()*Object.keys(PN).length)];
   const q={at,x:PN[at][0],y:PN[at][1],sp:1.15+prng()*.5,off:(prng()-.5)*1.8,sit:0,on:false,a:0,col:['#3b5b8a','#8a3b3b','#3f7d5a','#6b6f78','#a0763a','#5a3f8a','#2f3138','#b8a070'][i%8]};
   pedGoal(q);PEDS.push(q)}
 function updatePeds(dt){
@@ -874,7 +897,9 @@ function collide(){
       }
     }
   }
-  if(P.z>-.5){const r=REGIONS[regionAt(P.x)];P.x=clamp(P.x,r.x0+R,r.x1-R);P.y=clamp(P.y,r.y0+R,r.y1-R)}
+  if(P.z>-.5){ // the edge of the world: the city, the harbour road and the harbour are one piece; the arena is its own
+    if(P.x>900){const r=REGIONS[2];P.x=clamp(P.x,r.x0+R,r.x1-R);P.y=clamp(P.y,r.y0+R,r.y1-R)}
+    else{P.x=clamp(P.x,R,680-R);const y0=P.x<200?0:P.x<560?40:42,y1=P.x<200?160:P.x<560?112:130;P.y=clamp(P.y,y0+R,y1-R)}}
 }
 function updateZ(){
   if(P.lift){if(!inRect(P.x,P.y,P.lift))P.lift=null;else{P.z=P.lift.z;return}}
@@ -1060,24 +1085,26 @@ const C={road:'#4b4f57',walk:'#c8c5bc',curb:'#a9a69d',inner:'#aaa79e',grass:'#7f
 
 function drawOutdoor(g){
   g.fillStyle=C.road;g.fillRect(VB.x0,VB.y0,VB.x1-VB.x0,VB.y1-VB.y0);
-  if(VB.x0>850)drawArenaGround(g);else if(VB.x0>350)drawHarborGround(g);else{
+  if(VB.x0>850){drawArenaGround(g);return}
+  if(VB.x1>540){g.save();g.beginPath();g.rect(540,VB.y0-1,VB.x1-539,VB.y1-VB.y0+2);g.clip();drawHarborGround(g);g.restore()}
+  if(VB.x0<540){g.save();g.beginPath();g.rect(VB.x0-1,VB.y0-1,541-VB.x0,VB.y1-VB.y0+2);g.clip();
   // blocks
-  const blocks=[[-90,-90,180,160],[100,-90,190,160],[-90,82,180,170],[100,82,190,170]];
+  const blocks=[[-90,-90,180,160],[100,-90,480,160],[-90,82,180,170],[100,82,480,170]];
   g.fillStyle=C.walk;for(const b of blocks)g.fillRect(...b);
   g.strokeStyle=C.curb;g.lineWidth=.25;for(const b of blocks)g.strokeRect(...b);
-  g.fillStyle=C.inner;g.fillRect(-90,-90,176,156);g.fillRect(-90,86,176,166);g.fillRect(104,86,186,166);
+  g.fillStyle=C.inner;g.fillRect(-90,-90,176,156);g.fillRect(-90,86,176,166);g.fillRect(104,86,476,166);g.fillRect(200.6,-90,380,156);
   // paving joints on the sidewalks
   g.strokeStyle='rgba(0,0,0,.07)';g.lineWidth=.06;g.beginPath();
-  for(let x=Math.floor(VB.x0/2)*2;x<VB.x1;x+=2){if(x>88&&x<102)continue;g.moveTo(x,66);g.lineTo(x,70);g.moveTo(x,82);g.lineTo(x,86)}
+  for(let x=Math.floor(VB.x0/2)*2;x<Math.min(VB.x1,540);x+=2){if(x>88&&x<102)continue;g.moveTo(x,66);g.lineTo(x,70);g.moveTo(x,82);g.lineTo(x,86)}
   for(let y=Math.floor(VB.y0/2)*2;y<VB.y1;y+=2){if(y>68&&y<84)continue;g.moveTo(86,y);g.lineTo(90,y);g.moveTo(100,y);g.lineTo(104,y)}
   g.stroke();
   // road markings
   g.strokeStyle='#e2c44c';g.lineWidth=.14;g.beginPath();
-  for(const o of[-.15,.15]){g.moveTo(-90,76+o);g.lineTo(85,76+o);g.moveTo(105,76+o);g.lineTo(290,76+o);
+  for(const o of[-.15,.15]){g.moveTo(-90,76+o);g.lineTo(85,76+o);g.moveTo(105,76+o);g.lineTo(552,76+o);
     g.moveTo(95+o,-90);g.lineTo(95+o,65);g.moveTo(95+o,87);g.lineTo(95+o,250)}
   g.stroke();
   g.strokeStyle='rgba(255,255,255,.55)';g.lineWidth=.12;g.setLineDash([1.2,1.2]);g.beginPath();
-  for(const y of[72.4,79.6]){g.moveTo(-90,y);g.lineTo(85,y);g.moveTo(105,y);g.lineTo(290,y)}
+  for(const y of[72.4,79.6]){g.moveTo(-90,y);g.lineTo(85,y);g.moveTo(105,y);g.lineTo(552,y)}
   g.stroke();g.setLineDash([]);
   g.fillStyle='rgba(255,255,255,.8)';
   for(let y=70.4;y<81.6;y+=1.1){g.fillRect(86.6,y,2.8,.55);g.fillRect(100.6,y,2.8,.55)}
@@ -1088,8 +1115,8 @@ function drawOutdoor(g){
     g.fillStyle='#e8762c';g.fillRect(x,y,w,h);g.fillStyle='#f4f1ea';
     if(w<h)for(let k=y+.5;k<y+h;k+=2)g.fillRect(x,k,w,1);else for(let k=x+.5;k<x+w;k+=2)g.fillRect(k,y,1,h)}
   // park
-  g.fillStyle=C.grass;g.fillRect(104,-90,186,156);
-  g.fillStyle='rgba(255,255,255,.05)';for(let i=0;i<14;i++)g.fillRect(104,i*10-40,186,5);
+  g.fillStyle=C.grass;g.fillRect(104,-90,96.3,156);
+  g.fillStyle='rgba(255,255,255,.05)';for(let i=0;i<14;i++)g.fillRect(104,i*10-40,96.3,5);
   g.strokeStyle=C.path;g.lineCap='round';g.lineJoin='round';g.lineWidth=3;g.beginPath();
   for(const s of PATHS){g.moveTo(s[0],s[1]);g.lineTo(s[2],s[3])}g.stroke();g.lineCap='butt';
   g.fillStyle=C.path;disc(g,FOUNT.x,FOUNT.y,7.4);g.fill();
@@ -1113,7 +1140,7 @@ function drawOutdoor(g){
   g.fillStyle='#2a2d33';disc(g,108.6,90.8,.12);g.fill();
   g.fillStyle='#1f5fb5';disc(g,108.6,90.2,.75);g.fill();text(g,'M',108.6,90.25,1,'#fff');
   text(g,'SUBWAY',111.5,90.6,.7,'rgba(40,44,52,.75)');
-  }
+  g.restore()}
   g.fillStyle='#8c3f37';g.fillRect(66.8,66,2.4,1.5);text(g,'OFFICE',68,66.75,.48,'rgba(255,255,255,.75)');
   g.fillStyle='#3d5a80';g.fillRect(32.8,66,2.4,1.5);text(g,'APARTMENTS',34,66.75,.3,'rgba(255,255,255,.8)');
 }
@@ -1141,6 +1168,9 @@ function drawHarborGround(g){
   g.strokeStyle='rgba(0,0,0,.07)';g.lineWidth=.06;g.beginPath();
   for(let x=564;x<=676;x+=2){g.moveTo(x,72);g.lineTo(x,108)}for(let y=72;y<=108;y+=2){g.moveTo(564,y);g.lineTo(676,y)}g.stroke();
   g.fillStyle='#a39e92';g.fillRect(x0,60,w,12);
+  // the avenue arrives from the west and ends in a turning place
+  g.fillStyle=C.walk;g.fillRect(x0,66,566-x0,20);g.fillStyle=C.road;g.fillRect(x0,70,564-x0,12);disc(g,564,76,6);g.fill();
+  g.strokeStyle='rgba(255,255,255,.7)';g.lineWidth=.14;disc(g,564,76,2.2);g.stroke();
   // water
   g.fillStyle='#4f8db3';g.fillRect(x0,VB.y0-1,w,60-(VB.y0-1));
   g.strokeStyle='rgba(255,255,255,.14)';g.lineWidth=.12;g.setLineDash([2.2,5]);
@@ -1395,6 +1425,7 @@ const CANOPIES=[];
 {
   const subHole=dx=>({x:dx+110,y:92,w:3,h:10});
   OUTG.add(slab({x:-90,y:-90,w:380,h:340},[subHole(0)],0,art(-90,-90,380,340,9,drawOutdoor)));
+  OUTG.add(slab({x:290,y:-50,w:210,h:240},[],0,art(290,-50,210,240,9,drawOutdoor)));
   OUTG.add(slab({x:500,y:-50,w:240,h:200},[subHole(LINE_D)],0,art(500,-50,240,200,9,drawOutdoor)));
   OUTG.add(slab({x:1000,y:-60,w:220,h:220},[subHole(2*LINE_D)],0,art(1000,-60,220,220,9,drawOutdoor)));
   const mb=new MB(),gl=new MB(),hr=mulberry32(5);
@@ -1703,7 +1734,9 @@ function render(){
     const d=Math.hypot(P.x-g.cx,P.y-g.cy),o=P.z===-1&&gatesOpen()?clamp((1.05-d)/.6):0;
     g.o+=(o-g.o)*.35;g.pivot.rotation.y=(P.x<g.cx?1:-1)*g.o*1.45}
   for(const q of PEDS){const sat=q.sit>0;q.g.position.set(q.x,sat?-.3:Math.abs(Math.sin(time*7+q.sp*40))*(q.wait?0:.035),q.y);q.g.rotation.y=-q.a}
-  for(const c of CARS){const r=carRect(c);c.g.position.set(r.x+r.w/2,0,r.y+r.h/2)}
+  for(const c of CARS){const r=carRect(c);
+    if(c.turn>0){const u=1-c.turn;c.g.position.set(c.ln.b+Math.sin(Math.PI*u)*2.2,0,lerp(LANES[0].c,LANES[1].c,u));c.g.rotation.y=-Math.PI*u*-1+0}   // swinging round at the harbour end
+    else{c.g.position.set(r.x+r.w/2,0,r.y+r.h/2);c.g.rotation.y=c.ln.ax==='x'?(c.ln.dir>0?0:Math.PI):(c.ln.dir>0?-Math.PI/2:Math.PI/2)}}
   for(const sg of SIGNALS){const st=sigState(sg.g);sg.lamp.material.color.set(st==='g'?'#3fd06a':st==='y'?'#f0b63a':'#e5484d')}
   {const b=BOAT;b.g.position.set(b.x,Math.sin(time*1.3)*.02,b.y);b.g.rotation.y=-b.a;
     b.tiller.position.set(-1.55,.75,0);b.tiller.scale.set(1.3,.06,.06);b.tiller.rotation.y=b.rud;b.tiller.visible=true}
@@ -1758,7 +1791,7 @@ function locName(){
   if(P.z<-.01)return sn+' Station entrance';
   if(ri===2)return'Arena'+(A.cur?' · '+A.cur.name:'');
   if(P.boat)return'Harbor  ·  aboard the boat';
-  if(ri===1)return P.y<60?'Harbor Pier':P.y<72?'Harbor Quay':'Harbor Square';
+  if(P.x>=562&&P.x<900)return P.y<60?'Harbor Pier':P.y<72?'Harbor Quay':'Harbor Square';
   if(inRect(P.x,P.y,OFFICE))return'Office · '+(P.z%1?'Stairs':'Floor '+(Math.round(P.z)+1));
   if(inRect(P.x,P.y,TOWER)){
     if(P.z%1)return'Apartments · Stairs';
@@ -1767,6 +1800,7 @@ function locName(){
     return'Apartments · '+(P.z===0?'Lobby':'Floor '+(P.z+1));
   }
   if(inRect(P.x,P.y,PARK))return'Park';if(inRect(P.x,P.y,PLAZA))return'Station Plaza';
+  if(P.x>200&&P.x<562)return P.y>=66&&P.y<=86?'Harbor Road':'Alley off Harbor Road';
   if(P.y>=66&&P.y<=86)return'Main Avenue';if(P.x>=86&&P.x<=104)return'Cross Street';return'Back alley';
 }
 const wpEl=document.getElementById('wp'),hpEl=document.getElementById('hp');let lastWp='';
