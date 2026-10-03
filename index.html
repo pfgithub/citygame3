@@ -52,7 +52,7 @@ const SPRINT=1.7;
 
 // ---------------------------------------------------------------- colliders
 const COL=[];
-function box(x,y,w,h,za=-.5,zb=.5,opq=false){COL.push({x,y,w,h,za,zb,opq})}   // opq: blocks line of sight
+function box(x,y,w,h,za=-.5,zb=.5,opq=false,pen){COL.push({x,y,w,h,za,zb,opq,pen})}   // opq: blocks line of sight
 function circ(cx,cy,r,za=-.5,zb=.5){COL.push({cx,cy,r,za,zb})}
 
 // ---------------------------------------------------------------- floors
@@ -72,8 +72,10 @@ function addStair(x,y,w,h,dir,zl,zh){
   if(vert){side(x-t,y-t,t,h+2*t);side(x+w,y-t,t,h+2*t)}else{side(x-t,y-t,w+2*t,t);side(x-t,y+h,w+2*t,t)}
   const ends={N:[x,y-t,w,t],S:[x,y+h,w,t],W:[x-t,y,t,h],E:[x+w,y,t,h]};
   const opp={N:'S',S:'N',E:'W',W:'E'};
-  fwall(zl,...ends[dir]);        // top end is a wall for whoever is on the lower level
-  fwall(zh,...ends[opp[dir]]);   // bottom end is a railing for whoever is on the upper level
+  // The ends block movement and sight from the level that can't use them, but
+  // are not drawn: from on the stairs they would look like a wall across the exit.
+  box(...ends[dir],zl-.5,zl+.5,true,0);        // top end, for whoever is on the lower level
+  box(...ends[opp[dir]],zh-.5,zh+.5,true,0);   // bottom end, for whoever is on the upper level
   return s;
 }
 function stairT(s,px,py){switch(s.dir){
@@ -86,9 +88,21 @@ const DOORPT={x:68,y:65.85};
 const CAR={x:70,y:46.6,w:2.2,h:2.2,z:0,door:0,target:null,src:null,moving:false};
 const CARDOOR={x:70.5,y:48.8,w:1.2,h:.2};
 const CALLZONE={x:69.3,y:49,w:3.6,h:3.2};
+// Outer wall with windows: solid to walk into, but sight passes through the panes.
+const WIN={first:2,step:3,len:1.9};
+function winStarts(z,horiz,south){const o=OFFICE,a=horiz?o.x:o.y,n=horiz?o.w:o.h,r=[];
+  for(let v=a+WIN.first;v<a+n-2;v+=WIN.step)if(!(horiz&&south&&z===0&&v>=65&&v<=70))r.push(v);return r}
+function owall(z,x,y,w,h){
+  FL[z].walls.push({x,y,w,h});
+  const horiz=w>h,a=horiz?x:y,b=a+(horiz?w:h);let c=a;
+  const piece=(p,q)=>{if(q-p>.01)horiz?box(p,y,q-p,h,z-.5,z+.5,true):box(x,p,w,q-p,z-.5,z+.5,true)};
+  for(const v of winStarts(z,horiz,y>OFFICE.y+1)){if(v<a||v+WIN.len>b)continue;
+    piece(c,v);horiz?box(v,y,WIN.len,h,z-.5,z+.5):box(x,v,w,WIN.len,z-.5,z+.5);c=v+WIN.len}
+  piece(c,b);
+}
 for(const z of[0,1,2]){
-  fwall(z,54,46,28,.3);fwall(z,54,46,.3,20);fwall(z,81.7,46,.3,20);
-  if(z===0){fwall(0,54,65.7,13,.3);fwall(0,69,65.7,13,.3)}else fwall(z,54,65.7,28,.3);
+  owall(z,54,46,28,.3);owall(z,54,46,.3,20);owall(z,81.7,46,.3,20);
+  if(z===0){owall(0,54,65.7,13,.3);owall(0,69,65.7,13,.3)}else owall(z,54,65.7,28,.3);
   fwall(z,69.8,46.3,.2,2.7);fwall(z,72.2,46.3,.2,2.7);fwall(z,69.8,48.8,.7,.2);fwall(z,71.7,48.8,.7,.2);
 }
 const stA=addStair(74,49,1.4,6,'N',0,1);
@@ -295,55 +309,49 @@ function tick(dt){
 
 // ---------------------------------------------------------------- rendering
 const cv=document.getElementById('c'),ctx=cv.getContext('2d');
-const off=document.createElement('canvas'),octx=off.getContext('2d');
+const bufA=document.createElement('canvas'),bufB=document.createElement('canvas');
 let W=0,H=0,DPR=1,S=1,TX=0,TY=0;const VB={x0:0,y0:0,x1:0,y1:0};
 function resize(){DPR=Math.min(2,window.devicePixelRatio||1);
-  W=cv.width=off.width=Math.round(innerWidth*DPR);H=cv.height=off.height=Math.round(innerHeight*DPR)}
+  W=cv.width=bufA.width=bufB.width=Math.round(innerWidth*DPR);H=cv.height=bufA.height=bufB.height=Math.round(innerHeight*DPR)}
 addEventListener('resize',resize);resize();
 const vis=(x,y,w,h)=>x<VB.x1&&x+w>VB.x0&&y<VB.y1&&y+h>VB.y0;
 
-// Draw a group at a given opacity. Partial opacity goes through an offscreen
-// buffer so overlapping shapes inside the group don't show through each other.
-// Draw a group at a given opacity. Partial opacity goes through an offscreen
-// buffer so overlapping shapes inside the group don't show through each other.
-function layer(alpha,fn){
-  if(alpha<.004)return;
-  if(alpha>.996){ctx.setTransform(S,0,0,S,TX,TY);fn(ctx);return}
-  octx.setTransform(1,0,0,1,0,0);octx.clearRect(0,0,W,H);octx.setTransform(S,0,0,S,TX,TY);fn(octx);
-  ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=alpha;ctx.drawImage(off,0,0);ctx.globalAlpha=1;
+// One whole level as an opaque picture, painted into a buffer. The frame is
+// then assembled from these pictures: dimmed for the world out of sight, and
+// again at full colour inside the line-of-sight polygon.
+function paintLevel(buf,L){
+  const g=buf.getContext('2d');
+  g.setTransform(S,0,0,S,TX,TY);
+  if(L!==0){ // upstairs the street is a dim backdrop; underground there is none
+    if(L>0)drawOutdoor(g);
+    g.fillStyle=C.dark;g.globalAlpha=L>0?.62:1;
+    g.fillRect(VB.x0-1,VB.y0-1,VB.x1-VB.x0+2,VB.y1-VB.y0+2);g.globalAlpha=1;
+  }
+  drawLevel(g,L);
 }
-// The whole scene regardless of line of sight: floors crossfade with the
-// player's height, the office roof fades with distance from its door, and
-// inside the lift the world is only as visible as the doors are open.
-function drawBase(){
-  const z=P.z,fa=l=>clamp(1-Math.abs(z-l));
-  const gOut=z<0?clamp(1+z):Math.max(.28,1-z);
-  layer(gOut,drawOutdoor);
-  layer(fa(-2),drawPlatform);
-  layer(fa(-1),drawConcourse);
-  for(const l of[0,1,2])layer(fa(l),g=>drawOfficeFloor(g,l));
-  for(const s of STAIRS)layer(z<s.zl?clamp(1-(s.zl-z)):z>s.zh?clamp(1-(z-s.zh)):1,g=>drawStair(g,s));
-  layer(gOut*clamp(1+z*6),drawSubwayCover);
-  layer((1-bIn)*gOut,g=>{g.fillStyle='rgba(0,0,0,.22)';g.fillRect(OFFICE.x+1.4,OFFICE.y+OFFICE.h,OFFICE.w,1.4);g.fillRect(OFFICE.x+OFFICE.w,OFFICE.y+1.4,1.4,OFFICE.h-1.4);
-    drawRoof(g,OFFROOF);text(g,'OFFICE',68,64.3,1.5,'rgba(255,255,255,.55)')});
-  ctx.setTransform(S,0,0,S,TX,TY);
-  drawCanopies(ctx,gOut>.29?gOut:0);
-  ctx.setTransform(1,0,0,1,0,0);
-  if(P.inCar){ctx.globalAlpha=1-CAR.door;ctx.fillStyle=C.dark;ctx.fillRect(0,0,W,H)}
-  // desaturate and darken: this is the part of the world the player can't see right now
-  ctx.globalCompositeOperation='saturation';ctx.globalAlpha=.8;ctx.fillStyle='#808080';ctx.fillRect(0,0,W,H);
-  ctx.globalCompositeOperation='source-over';ctx.globalAlpha=.58;ctx.fillStyle='#0d0f13';ctx.fillRect(0,0,W,H);
-  ctx.globalAlpha=1;
+function blit(buf,alpha){ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=alpha;ctx.drawImage(buf,0,0);ctx.globalAlpha=1}
+// Out-of-sight extras and the dimming itself. w0 is how much of the street
+// level is showing (1 on the street, 0..1 on stairs that touch it).
+function dimWorld(w0){
+  const a=(1-bIn)*w0;
+  if(a>.004){ // office roof, fading with distance from the door
+    const g=ctx;g.setTransform(S,0,0,S,TX,TY);g.globalAlpha=a;
+    g.fillStyle='rgba(0,0,0,.22)';g.fillRect(OFFICE.x+1.4,OFFICE.y+OFFICE.h,OFFICE.w,1.4);g.fillRect(OFFICE.x+OFFICE.w,OFFICE.y+1.4,1.4,OFFICE.h-1.4);
+    drawRoof(g,OFFROOF);text(g,'OFFICE',68,64.3,1.5,'rgba(255,255,255,.55)');
+  }
+  ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle=C.dark;
+  // inside the lift the world is only as visible as the doors are open
+  if(P.inCar){ctx.globalAlpha=1-CAR.door;ctx.fillRect(0,0,W,H)}
+  // a wash of dark grey both darkens and desaturates
+  ctx.globalAlpha=.7;ctx.fillStyle='#1b1d21';ctx.fillRect(0,0,W,H);ctx.globalAlpha=1;
 }
-function group(alpha,poly,fn){
-  if(alpha<.004)return;
-  const clip=()=>{ctx.setTransform(S,0,0,S,TX,TY);ctx.beginPath();ctx.moveTo(poly[0],poly[1]);
-    for(let i=2;i<poly.length;i+=2)ctx.lineTo(poly[i],poly[i+1]);ctx.closePath();ctx.clip()};
-  ctx.save();clip();
-  if(alpha>.996)fn(ctx);
-  else{octx.setTransform(1,0,0,1,0,0);octx.clearRect(0,0,W,H);octx.setTransform(S,0,0,S,TX,TY);fn(octx);
-    ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=alpha;ctx.drawImage(off,0,0);ctx.globalAlpha=1}
-  ctx.restore();
+// Composite a level picture inside a polygon. Because the finished picture is
+// blended once, the antialiased polygon edge has no pale fringe.
+function reveal(buf,alpha,poly){
+  if(alpha<.004||poly.length<6)return;
+  ctx.save();ctx.setTransform(S,0,0,S,TX,TY);ctx.beginPath();ctx.moveTo(poly[0],poly[1]);
+  for(let i=2;i<poly.length;i+=2)ctx.lineTo(poly[i],poly[i+1]);ctx.closePath();ctx.clip();
+  blit(buf,alpha);ctx.restore();
 }
 // Line of sight. Casts rays from (ox,oy) at every corner of every opaque
 // collider that exists on level zq and returns the visible polygon as a flat
@@ -359,7 +367,7 @@ function visPoly(ox,oy,zq){
   rect(x0,y0,x1-x0,y1-y0,0);
   for(const c of COL){
     if(!c.opq||zq<c.za||zq>=c.zb||c.x>x1||c.x+c.w<x0||c.y>y1||c.y+c.h<y0)continue;
-    rect(c.x,c.y,c.w,c.h,Math.min(c.w,c.h,1.5));
+    rect(c.x,c.y,c.w,c.h,c.pen??Math.min(c.w,c.h,1.5));
   }
   if(zq>-.5&&zq<2.5){const d=CARDOOR,hw=doorHalf(doorOpen(zq));
     rect(d.x,d.y,hw,d.h,.2);rect(d.x+d.w-hw,d.y,hw,d.h,.2)}
@@ -502,8 +510,9 @@ function drawOfficeFloor(g,z){
   drawFurn(g,F);drawWalls(g,F);
   // windows
   g.fillStyle='#a9d6ec';
-  for(let x=o.x+2;x<o.x+o.w-2;x+=3){g.fillRect(x,o.y+.08,1.9,.14);if(z>0||x<65||x>70)g.fillRect(x,o.y+o.h-.22,1.9,.14)}
-  for(let y=o.y+2;y<o.y+o.h-2;y+=3){g.fillRect(o.x+.08,y,.14,1.9);g.fillRect(o.x+o.w-.22,y,.14,1.9)}
+  for(const x of winStarts(z,true,false))g.fillRect(x,o.y+.08,WIN.len,.14);
+  for(const x of winStarts(z,true,true))g.fillRect(x,o.y+o.h-.22,WIN.len,.14);
+  for(const y of winStarts(z,false,false)){g.fillRect(o.x+.08,y,.14,WIN.len);g.fillRect(o.x+o.w-.22,y,.14,WIN.len)}
   if(z===0){g.fillStyle='#a9d6ec';g.fillRect(66.9,65.75,.1,.9);g.fillRect(69,65.75,.1,.9)}
   drawCarDoor(g,doorOpen(z));
 }
@@ -613,17 +622,24 @@ const JOYR=56;
 function render(){
   S=Math.min(W,H)/view;TX=W/2-P.x*S;TY=H/2-P.y*S;
   VB.x0=-TX/S;VB.y0=-TY/S;VB.x1=(W-TX)/S;VB.y1=(H-TY)/S;
-  ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle=C.dark;ctx.fillRect(0,0,W,H);
-  drawBase();
-  // What the player has line of sight to is drawn in full colour on top. On a flight of stairs
-  // there are two views: out of the bottom onto the lower floor and out of the
-  // top onto the upper one.
-  const st=STAIRS.find(s=>P.z>s.zl&&P.z<s.zh);
-  if(st&&!P.inCar){
+  // Out-of-sight world first (dimmed; on stairs the two floors crossfade with
+  // height), then what the player has line of sight to in full colour on top.
+  // On a flight of stairs there are two views: out of the bottom onto the lower
+  // floor and out of the top onto the upper one.
+  const st=P.inCar?undefined:STAIRS.find(s=>P.z>s.zl&&P.z<s.zh);
+  if(st){
     const t=(P.z-st.zl)/(st.zh-st.zl);
-    group(clamp((1-t)/.12),visPoly(P.x,P.y,st.zl),g=>drawLevel(g,st.zl));
-    group(clamp(t/.12),visPoly(P.x,P.y,st.zh),g=>drawLevel(g,st.zh));
-  }else group(1,visPoly(P.x,P.y,P.z),g=>drawLevel(g,Math.round(P.z)));
+    paintLevel(bufA,st.zl);paintLevel(bufB,st.zh);
+    blit(bufA,1);blit(bufB,t);
+    dimWorld(st.zl===0?1-t:st.zh===0?t:0);
+    reveal(bufA,clamp((1-t)/.12),visPoly(P.x,P.y,st.zl));
+    reveal(bufB,clamp(t/.12),visPoly(P.x,P.y,st.zh));
+  }else{
+    const L=Math.round(P.z);
+    paintLevel(bufA,L);blit(bufA,1);
+    dimWorld(L===0?1:0);
+    reveal(bufA,1,visPoly(P.x,P.y,P.z));
+  }
   ctx.setTransform(S,0,0,S,TX,TY);
   drawPlayer(ctx);
   // joystick
