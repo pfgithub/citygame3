@@ -18,7 +18,7 @@
     color:#eef0f3;font-size:14px;background:rgba(18,20,24,.62);padding:8px 16px;border-radius:999px;
     pointer-events:none;transition:opacity .8s;white-space:nowrap}
   #elev{position:fixed;right:calc(16px + env(safe-area-inset-right));top:50%;transform:translateY(-50%);
-    display:none;flex-direction:column-reverse;gap:12px}
+    display:none;grid-template-columns:repeat(var(--cols,1),58px);gap:10px}
   #elev button{width:58px;height:58px;border-radius:50%;border:2px solid #cfd3d9;background:rgba(30,33,39,.85);
     color:#f2f3f5;font-size:22px;font-weight:600;touch-action:none}
   #elev button.on{background:#f0b63a;border-color:#f0b63a;color:#1c1e22}
@@ -28,7 +28,7 @@
 <canvas id="c"></canvas>
 <div id="loc"></div>
 <div id="hint">Drag anywhere to walk &nbsp;·&nbsp; WASD / arrows &nbsp;·&nbsp; Shift to sprint</div>
-<div id="elev"><button data-f="0">1</button><button data-f="1">2</button><button data-f="2">3</button></div>
+<div id="elev"></div>
 <script>
 'use strict';
 // ---------------------------------------------------------------- utilities
@@ -58,7 +58,7 @@ function circ(cx,cy,r,za=-.5,zb=.5){COL.push({cx,cy,r,za,zb})}
 
 // ---------------------------------------------------------------- floors
 const FL={};
-for(const z of[-2,-1,0,1,2])FL[z]={z,walls:[],furn:[]};
+for(let z=-2;z<=9;z++)FL[z]={z,walls:[],furn:[],wins:[]};
 function fwall(z,x,y,w,h,opq=true){FL[z].walls.push({x,y,w,h});box(x,y,w,h,z-.5,z+.5,opq)}
 function ffurn(z,x,y,w,h,color,o={}){FL[z].furn.push({x,y,w,h,color,...o});if(!o.ghost)box(x,y,w,h,z-.5,z+.5,!!o.opq)}
 function fround(z,cx,cy,r,color,o={}){FL[z].furn.push({cx,cy,r,color,...o});if(!o.ghost)circ(cx,cy,r,z-.5,z+.5)}
@@ -86,9 +86,14 @@ function stairT(s,px,py){switch(s.dir){
 // ---------------------------------------------------------------- office building
 const OFFICE={x:54,y:46,w:28,h:20};
 const DOORPT={x:68,y:65.85};
-const CAR={x:70,y:46.6,w:2.2,h:2.2,z:0,door:0,target:null,src:null,moving:false};
-const CARDOOR={x:70.5,y:48.8,w:1.2,h:.2};
-const CALLZONE={x:69.3,y:49,w:3.6,h:3.2};
+// Lifts: a 2.2 m car whose door faces south. `door` is how far open it is (0..1).
+const LIFTS=[];
+function addLift(x,y,zmin,zmax){
+  const l={x,y,w:2.2,h:2.2,dr:{x:x+.5,y:y+2.2,w:1.2,h:.2},call:{x:x-.7,y:y+2.4,w:3.6,h:3.2},zmin,zmax,z:zmin,door:0,target:null,src:null,moving:false};
+  for(let z=zmin;z<=zmax;z++){fwall(z,x-.2,y-.3,2.6,.3);fwall(z,x-.2,y-.3,.2,2.7);fwall(z,x+2.2,y-.3,.2,2.7);fwall(z,x-.2,y+2.2,.7,.2);fwall(z,x+1.7,y+2.2,.7,.2)}
+  LIFTS.push(l);return l;
+}
+const CAR=addLift(70,46.6,0,2);
 // Outer wall with windows: solid to walk into, but sight passes through the panes.
 const WIN={first:2,step:3,len:1.9};
 function winStarts(z,horiz,south){const o=OFFICE,a=horiz?o.x:o.y,n=horiz?o.w:o.h,r=[];
@@ -104,7 +109,6 @@ function owall(z,x,y,w,h){
 for(const z of[0,1,2]){
   owall(z,54,46,28,.3);owall(z,54,46,.3,20);owall(z,81.7,46,.3,20);
   if(z===0){owall(0,54,65.7,13,.3);owall(0,69,65.7,13,.3)}else owall(z,54,65.7,28,.3);
-  fwall(z,69.8,46.3,.2,2.7);fwall(z,72.2,46.3,.2,2.7);fwall(z,69.8,48.8,.7,.2);fwall(z,71.7,48.8,.7,.2);
 }
 const stA=addStair(74,49,1.4,6,'N',0,1);
 const stB=addStair(75.6,49,1.4,6,'S',1,2);
@@ -207,6 +211,9 @@ function updateTrains(dt){
 const DYN=[];
 function buildDyn(){
   DYN.length=0;
+  // lift doors are shut unless the car is on the player's floor and open
+  for(const l of LIFTS)if(!(Math.abs(P.z-l.z)<.01&&l.door>.8))DYN.push({...l.dr,za:l.zmin-.5,zb:l.zmax+.5});
+  if(MYDOOR.open<.8)DYN.push({...MYDOOR,za:MYDOOR.z-.5,zb:MYDOOR.z+.5});
   if(P.z>-1.5)return;
   for(const tr of TRAINS){const p=trainParts(tr);DYN.push(...p.walls);if(tr.door<.8)DYN.push(...p.doors)}
   STATIONS.forEach((st,si)=>{for(let k=0;k<2;k++)if(dockedDoor(si,k)<.8)
@@ -220,7 +227,8 @@ function roofDetails(x,y,w,h){const d=[];const n=Math.floor(w*h/260)+2;
   for(let i=0;i<n;i++){const k=rnd();const dw=k<.6?rr(1.4,2.6):rr(3,5),dh=k<.6?rr(1.4,2.6):rr(1.5,2.5);
     d.push({x:rr(x+2,x+w-2-dw),y:rr(y+2,y+h-2-dh),w:dw,h:dh,c:k<.6?'#c3c6ca':'#a9d3e6'})}return d}
 function building(x,y,w,h){OUT.roofs.push({x,y,w,h,color:pick(ROOFC),details:roofDetails(x,y,w,h)});box(x,y,w,h,-.5,.5,true)}
-building(-40,40,90,26);building(-40,-40,80,76);building(44,-40,42,82);
+pick(ROOFC);roofDetails(-40,40,90,26);   // (lot now holds the apartment tower; keeps the random sequence stable)
+building(-40,-40,80,76);building(44,-40,42,82);
 building(-40,86,82,30);building(46,86,40,26);building(-40,120,66,80);building(30,116,56,84);
 building(140,86,100,28);building(104,116,44,84);building(152,118,88,82);
 const OFFROOF={...OFFICE,color:'#8f97a1',details:roofDetails(54,46,28,15)};
@@ -278,8 +286,68 @@ for(const[x,y,w,h]of HPLANT)box(x,y,w,h);
 tree(585,86,2.8,true);tree(600,98,2.4,true);tree(634,98,2.6,true);tree(664,92,3,true);
 circ(608.6,90.8,.12);
 
+// ---------------------------------------------------------------- apartment tower
+// Ten identical floors: a corridor with flats on both sides, a stair core and a
+// lift. Every flat door is locked except the player's own.
+const TOWER={x:22,y:44,w:24,h:22},TDOORPT={x:34,y:65.85},TTOP=9,MYFLAT={z:6,id:'03'};
+const MYRECT={x:28.2,y:56,w:5.8,h:9.7};
+building(-40,40,58,26);
+const TROOF={...TOWER,color:'#a39184',details:roofDetails(22,44,24,18)};
+const TLIFT=addLift(38.4,51.6,0,TTOP);
+const FLATDOORS=[];
+function wallWin(z,x,y,w,h,starts,len){
+  FL[z].walls.push({x,y,w,h});
+  const horiz=w>h,a=horiz?x:y,b=a+(horiz?w:h);let c=a;
+  const piece=(p,q)=>{if(q-p>.01)horiz?box(p,y,q-p,h,z-.5,z+.5,true):box(x,p,w,q-p,z-.5,z+.5,true)};
+  for(const v of starts){if(v<a||v+len>b)continue;
+    piece(c,v);horiz?box(v,y,len,h,z-.5,z+.5):box(x,v,w,len,z-.5,z+.5);
+    FL[z].wins.push(horiz?{x:v,y:y+h/2-.07,w:len,h:.14}:{x:x+w/2-.07,y:v,w:.14,h:len});c=v+len}
+  piece(c,b);
+}
+for(let z=0;z<=TTOP;z++){
+  const wx=[],wy=[];for(let v=23.5;v<44;v+=3)wx.push(v);for(let v=45.5;v<64;v+=3)wy.push(v);
+  wallWin(z,22,44,24,.3,wx,1.8);wallWin(z,22,44,.3,22,wy,1.8);wallWin(z,45.7,44,.3,22,wy,1.8);
+  if(z===0){wallWin(0,22,65.7,11,.3,wx,1.8);wallWin(0,35,65.7,11,.3,wx,1.8)}else wallWin(z,22,65.7,24,.3,wx,1.8);
+  // corridor walls, leaving gaps for flat doors, the stair landings and the lift
+  for(const[a,b]of[[22.3,25],[26,30.3],[31.5,36.5],[37.7,38.2],[40.8,43],[44,45.7]])fwall(z,a,53.8,b-a,.2);
+  for(const[a,b]of z===0?[[22.3,24.7],[25.7,28.2],[40,42.4],[43.4,45.7]]:[[22.3,24.7],[25.7,30.6],[31.6,36.6],[37.6,42.4],[43.4,45.7]])fwall(z,a,55.8,b-a,.2);
+  for(const x of z===0?[28,40]:[28,34,40])fwall(z,x,56,.2,9.7);
+  fwall(z,29.8,44.3,.2,9.5);fwall(z,41,44.3,.2,9.5);
+  fwall(z,30,50.4,11,.2);fwall(z,38.2,50.6,.2,.7);
+  ffurn(z,30,44.3,11,6.1,'#2a2c31',{opq:1});       // service risers behind the core
+  const flats=[['01',25,53.8],['02',24.7,55.8],['03',30.6,55.8],['04',36.6,55.8],['05',42.4,55.8],['06',43,53.8]];
+  for(const[id,x,y]of flats){
+    if(z===0&&(id==='03'||id==='04'))continue;      // the lobby takes their place
+    const d={z,x,y,w:1,h:.2,name:(z+1)+id,mine:z===MYFLAT.z&&id===MYFLAT.id,open:0};
+    FLATDOORS.push(d);if(!d.mine)box(x,y,1,.2,z-.5,z+.5,true);
+  }
+  // scissor stairs: flights alternate between two lanes and directions
+  if(z<TTOP)z%2===0?addStair(31.6,50.8,4.8,1.3,'E',z,z+1):addStair(31.6,52.3,4.8,1.3,'W',z,z+1);
+}
+ffurn(0,31.6,52.3,4.8,1.3,'#3a3d44',{opq:1});ffurn(TTOP,31.6,52.3,4.8,1.3,'#3a3d44',{opq:1});
+const MYDOOR=FLATDOORS.find(d=>d.mine);
+// lobby
+ffurn(0,28.3,57,.45,4.2,'#9aa0a8');ffurn(0,38.7,57.5,1,3.2,'#5d6f86');
+for(const[x,y]of[[32.4,65],[35.6,65],[28.9,65],[39.4,65]])fround(0,x,y,.38,'#4f8a55');
+{ // the player's flat
+  const z=MYFLAT.z;
+  fwall(z,30.2,56,.15,1.9);fwall(z,28.2,58.8,2.15,.15);                    // bathroom
+  ffurn(z,28.35,56.15,.5,.7,'#f1f1ee');ffurn(z,29.2,56.1,.75,.45,'#f1f1ee');ffurn(z,28.3,57.65,1,1.1,'#bfe0ea');
+  ffurn(z,33.35,56.3,.65,3.2,'#b9bcc2');ffurn(z,33.3,59.6,.7,.7,'#e4e6e9'); // kitchen
+  fround(z,31.7,60.4,.55,'#c9a877');
+  for(let k=0;k<3;k++)fround(z,31.7+Math.cos(k*2.1+1)*.95,60.4+Math.sin(k*2.1+1)*.95,.22,'#3b4350',{ghost:1});
+  ffurn(z,28.35,59.6,.95,2.4,'#5d6f86');fround(z,30,60.8,.38,'#c9b79a');   // sofa, coffee table
+  fwall(z,28.2,62.6,3.6,.15);fwall(z,32.9,62.6,1.1,.15);                    // bedroom
+  ffurn(z,28.35,63.5,2.05,1.7,'#e8e2d6');ffurn(z,28.4,63.65,.5,1.4,'#ffffff',{ghost:1});
+  ffurn(z,32.1,65,1.8,.6,'#8a6a4a');fround(z,33,64.6,.24,'#3b4350',{ghost:1});
+  ffurn(z,33.05,62.8,.9,.55,'#7b6a58');fround(z,33.55,61.6,.32,'#4f8a55');
+}
+const BUILDINGS=[
+  {rect:OFFICE,door:DOORPT,roof:OFFROOF,label:'OFFICE',ls:1.5,bIn:0},
+  {rect:TOWER,door:TDOORPT,roof:TROOF,label:'APARTMENTS',ls:1.3,bIn:0}];
+
 // ---------------------------------------------------------------- state
-const P={x:68,y:68.2,z:0,a:-Math.PI/2,inCar:false,train:null,walk:0};
+const P={x:68,y:68.2,z:0,a:-Math.PI/2,lift:null,train:null,walk:0};
 let view=VIEW_OUT,indoor=0,bIn=0,time=0,pendingBtn=null,moved=false;
 const keys=new Set();let joy=null;const input={x:0,y:0,override:null};
 
@@ -287,12 +355,8 @@ const keys=new Set();let joy=null;const input={x:0,y:0,override:null};
 function collide(){
   for(let it=0;it<4;it++){
     const n=COL.length,m=n+DYN.length;
-    for(let i=0;i<=m;i++){
-      let c;
-      if(i===m){ // elevator door, closed unless the car is here and open
-        if(Math.abs(P.z-CAR.z)<.01&&CAR.door>.8)break;
-        c=CARDOOR;
-      }else{c=i<n?COL[i]:DYN[i-n];if(P.z<c.za||P.z>=c.zb)continue}
+    for(let i=0;i<m;i++){
+      const c=i<n?COL[i]:DYN[i-n];if(P.z<c.za||P.z>=c.zb)continue;
       if(c.r!==undefined){
         const dx=P.x-c.cx,dy=P.y-c.cy,d=Math.hypot(dx,dy),m=R+c.r;
         if(d<m){if(d>1e-6){P.x+=dx/d*(m-d);P.y+=dy/d*(m-d)}else P.x+=m}
@@ -308,45 +372,51 @@ function collide(){
   if(P.z>-.5){const r=REGIONS[P.x<400?0:1];P.x=clamp(P.x,r.x0+R,r.x1-R);P.y=clamp(P.y,r.y0+R,r.y1-R)}
 }
 function updateZ(){
-  if(P.inCar){if(!inRect(P.x,P.y,CAR))P.inCar=false;else{P.z=CAR.z;return}}
-  if(inRect(P.x,P.y,CAR)&&Math.abs(P.z-CAR.z)<.01){P.inCar=true;P.z=CAR.z;return}
+  if(P.lift){if(!inRect(P.x,P.y,P.lift))P.lift=null;else{P.z=P.lift.z;return}}
+  for(const l of LIFTS)if(inRect(P.x,P.y,l)&&Math.abs(P.z-l.z)<.01){P.lift=l;P.z=l.z;return}
   for(const s of STAIRS){
     if(P.z<s.zl-.01||P.z>s.zh+.01||!inRect(P.x,P.y,s))continue;
     P.z=lerp(s.zl,s.zh,clamp(stairT(s,P.x,P.y)));return;
   }
   P.z=Math.round(P.z);
 }
-function updateCar(dt){
-  const sameZ=Math.abs(P.z-CAR.z)<.01;
-  const blocked=sameZ&&P.x>CARDOOR.x-R-.05&&P.x<CARDOOR.x+CARDOOR.w+R+.05&&Math.abs(P.y-(CARDOOR.y+.1))<R+.25;
+function updateLift(l,dt){
+  const d=l.dr,inside=P.lift===l,sameZ=Math.abs(P.z-l.z)<.01;
+  const blocked=sameZ&&P.x>d.x-R-.05&&P.x<d.x+d.w+R+.05&&Math.abs(P.y-(d.y+.1))<R+.25;
   const f=Math.round(P.z);
-  const nearCall=!P.inCar&&Math.abs(P.z-f)<.01&&f>=0&&f<=2&&inRect(P.x,P.y,CALLZONE);
-  if(!CAR.moving){
-    if(P.inCar){if(pendingBtn!==null){if(pendingBtn!==CAR.z){CAR.target=pendingBtn;CAR.src='btn'}pendingBtn=null}}
-    else{pendingBtn=null;
-      if(CAR.src==='btn'){CAR.target=null;CAR.src=null}
-      if(nearCall){if(CAR.z!==f){CAR.target=f;CAR.src='call'}else CAR.target=null}}
+  const nearCall=!inside&&Math.abs(P.z-f)<.01&&f>=l.zmin&&f<=l.zmax&&inRect(P.x,P.y,l.call);
+  if(!l.moving){
+    if(inside){if(pendingBtn!==null){if(pendingBtn!==l.z&&pendingBtn>=l.zmin&&pendingBtn<=l.zmax){l.target=pendingBtn;l.src='btn'}pendingBtn=null}}
+    else{
+      if(l.src==='btn'){l.target=null;l.src=null}
+      if(nearCall){if(l.z!==f){l.target=f;l.src='call'}else l.target=null}}
   }
   const step=dt/.7;
-  if(CAR.target!==null&&CAR.target!==CAR.z){
-    if(!CAR.moving){
-      if(blocked)CAR.door=Math.min(1,CAR.door+step);
-      else{CAR.door=Math.max(0,CAR.door-step);if(CAR.door===0)CAR.moving=true}
+  if(l.target!==null&&l.target!==l.z){
+    if(!l.moving){
+      if(blocked)l.door=Math.min(1,l.door+step);
+      else{l.door=Math.max(0,l.door-step);if(l.door===0)l.moving=true}
     }else{
-      const d=CAR.target-CAR.z,s=dt*.45;
-      if(Math.abs(d)<=s){CAR.z=CAR.target;CAR.moving=false;CAR.target=null;CAR.src=null}else CAR.z+=Math.sign(d)*s;
+      const dz=l.target-l.z,s=dt*1.1;
+      if(Math.abs(dz)<=s){l.z=l.target;l.moving=false;l.target=null;l.src=null}else l.z+=Math.sign(dz)*s;
     }
   }else{
-    CAR.target=null;
-    const want=P.inCar||blocked||(nearCall&&f===CAR.z);
-    CAR.door=want?Math.min(1,CAR.door+step):Math.max(0,CAR.door-step);
+    l.target=null;
+    const want=inside||blocked||(nearCall&&f===l.z);
+    l.door=want?Math.min(1,l.door+step):Math.max(0,l.door-step);
   }
-  if(P.inCar)P.z=CAR.z;
+  if(inside)P.z=l.z;
+}
+// The player's own front door unlocks and slides open as they walk up to it.
+function updateMyDoor(dt){
+  const d=MYDOOR,near=Math.abs(P.z-d.z)<.01&&Math.hypot(P.x-(d.x+.5),P.y-(d.y+.1))<1.5;
+  d.open=near?Math.min(1,d.open+dt/.35):Math.max(0,d.open-dt/.35);
 }
 function updateIndoor(dt){
   // Everything here is a function of where the player stands, not of time.
-  const d=Math.hypot(P.x-DOORPT.x,P.y-DOORPT.y);
-  bIn=P.z>.01?1:P.z<-.01?0:inRect(P.x,P.y,OFFICE)?clamp(.5+d/8):clamp(.5-d/8);
+  bIn=0;
+  for(const b of BUILDINGS){const d=Math.hypot(P.x-b.door.x,P.y-b.door.y);
+    b.bIn=P.z>.01?1:P.z<-.01?0:inRect(P.x,P.y,b.rect)?clamp(.5+d/8):clamp(.5-d/8);bIn=Math.max(bIn,b.bIn)}
   indoor=Math.max(bIn,clamp(-P.z)*.5);
   const target=lerp(VIEW_OUT,VIEW_IN,indoor);
   view+=(target-view)*(1-Math.exp(-dt*12));
@@ -371,7 +441,9 @@ function tick(dt){
     let da=Math.atan2(iy,ix)-P.a;da=Math.atan2(Math.sin(da),Math.cos(da));P.a+=da*Math.min(1,dt*14);
     P.walk+=dt*Math.min(1,mag)*9;
   }
-  updateCar(dt);collide();updateZ();updateIndoor(dt);
+  if(!P.lift)pendingBtn=null;
+  for(const l of LIFTS)updateLift(l,dt);
+  updateMyDoor(dt);collide();updateZ();updateIndoor(dt);
 }
 
 // ---------------------------------------------------------------- rendering
@@ -400,15 +472,15 @@ function blit(buf,alpha){ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=alpha;ctx
 // Out-of-sight extras and the dimming itself. w0 is how much of the street
 // level is showing (1 on the street, 0..1 on stairs that touch it).
 function dimWorld(w0){
-  const a=(1-bIn)*w0;
-  if(a>.004){ // office roof, fading with distance from the door
+  for(const b of BUILDINGS){ // roofs of the enterable buildings, fading with distance from their door
+    const a=(1-b.bIn)*w0,r=b.rect;if(a<.004)continue;
     const g=ctx;g.setTransform(S,0,0,S,TX,TY);g.globalAlpha=a;
-    g.fillStyle='rgba(0,0,0,.22)';g.fillRect(OFFICE.x+1.4,OFFICE.y+OFFICE.h,OFFICE.w,1.4);g.fillRect(OFFICE.x+OFFICE.w,OFFICE.y+1.4,1.4,OFFICE.h-1.4);
-    drawRoof(g,OFFROOF);text(g,'OFFICE',68,64.3,1.5,'rgba(255,255,255,.55)');
+    g.fillStyle='rgba(0,0,0,.22)';g.fillRect(r.x+1.4,r.y+r.h,r.w,1.4);g.fillRect(r.x+r.w,r.y+1.4,1.4,r.h-1.4);
+    drawRoof(g,b.roof);text(g,b.label,r.x+r.w/2,r.y+r.h-1.7,b.ls,'rgba(255,255,255,.55)');
   }
   ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle=C.dark;
   // inside the lift the world is only as visible as the doors are open
-  if(P.inCar){ctx.globalAlpha=1-CAR.door;ctx.fillRect(0,0,W,H)}
+  if(P.lift){ctx.globalAlpha=1-P.lift.door;ctx.fillRect(0,0,W,H)}
   // a wash of dark grey both darkens and desaturates
   ctx.globalAlpha=.7;ctx.fillStyle='#1b1d21';ctx.fillRect(0,0,W,H);ctx.globalAlpha=1;
 }
@@ -436,8 +508,9 @@ function visPoly(ox,oy,zq){
     if(!c.opq||zq<c.za||zq>=c.zb||c.x>x1||c.x+c.w<x0||c.y>y1||c.y+c.h<y0)continue;
     rect(c.x,c.y,c.w,c.h,c.pen??Math.min(c.w,c.h,1.5));
   }
-  if(zq>-.5&&zq<2.5){const d=CARDOOR,hw=doorHalf(doorOpen(zq));
+  for(const l of LIFTS)if(zq>l.zmin-.5&&zq<l.zmax+.5){const d=l.dr,hw=doorHalf(l,doorOpen(l,zq));
     rect(d.x,d.y,hw,d.h,.2);rect(d.x+d.w-hw,d.y,hw,d.h,.2)}
+  if(zq>=MYDOOR.z-.5&&zq<MYDOOR.z+.5&&MYDOOR.open<.98)rect(MYDOOR.x,MYDOOR.y,MYDOOR.w*(1-MYDOOR.open),MYDOOR.h,.2);
   ANG.sort((a,b)=>a-b);
   const out=[];
   for(const a of ANG){
@@ -455,8 +528,14 @@ function visPoly(ox,oy,zq){
 }
 // Everything that exists on one level.
 function drawLevel(g,L){
-  if(L===0){drawOutdoor(g);drawOfficeFloor(g,0)}
-  else if(L>0)drawOfficeFloor(g,L);
+  if(L===0)drawOutdoor(g);
+  if(L>=0){
+    if(L<=2)drawOfficeFloor(g,L);
+    drawTowerFloor(g,L);
+    drawFurn(g,FL[L]);drawWalls(g,FL[L]);
+    if(L<=2)drawOfficeTop(g,L);
+    drawTowerTop(g,L);
+  }
   else if(L===-1)drawConcourse(g);
   else drawPlatform(g);
   for(const s of STAIRS)if(s.zl===L||s.zh===L)drawStair(g,s);
@@ -536,7 +615,8 @@ function drawOutdoor(g){
   for(const l of OUT.lamps){if(!vis(l.x-1,l.y-1,2,2))continue;g.fillStyle='rgba(255,244,200,.22)';disc(g,l.x,l.y,.9);g.fill();
     g.fillStyle='#33363c';disc(g,l.x,l.y,.14);g.fill()}
   // office base & entrance
-  g.fillStyle='#1d1f24';g.fillRect(OFFICE.x,OFFICE.y,OFFICE.w,OFFICE.h);
+  g.fillStyle='#1d1f24';g.fillRect(OFFICE.x,OFFICE.y,OFFICE.w,OFFICE.h);g.fillRect(TOWER.x,TOWER.y,TOWER.w,TOWER.h);
+  g.fillStyle='#3d5a80';g.fillRect(32.8,66,2.4,1.5);text(g,'APARTMENTS',34,66.75,.3,'rgba(255,255,255,.8)');
   g.fillStyle='#8c3f37';g.fillRect(66.8,66,2.4,1.5);text(g,'OFFICE',68,66.75,.48,'rgba(255,255,255,.75)');
   // roofs
   g.fillStyle='rgba(0,0,0,.22)';for(const b of OUT.roofs)if(vis(b.x,b.y,b.w+2,b.h+2))g.fillRect(b.x+1.4,b.y+1.4,b.w,b.h);
@@ -598,35 +678,65 @@ function drawOfficeFloor(g,z){
   else if(z===1)grid(g,o,1,'rgba(255,255,255,.12)');
   else{g.strokeStyle='rgba(0,0,0,.08)';g.lineWidth=.04;g.beginPath();for(let y=o.y;y<o.y+o.h;y+=.4){g.moveTo(o.x,y);g.lineTo(o.x+o.w,y)}g.stroke()}
   if(z===1){g.fillStyle='rgba(120,190,220,.18)';g.fillRect(74.2,58.2,7.5,7.5)}
-  // elevator threshold + shaft
-  g.fillStyle='rgba(240,182,58,.35)';g.fillRect(70.3,49,1.6,1.1);
-  text(g,'LIFT',71.1,49.55,.42,'rgba(40,44,52,.7)');
   text(g,String(z+1),79.6,56,3.2,'rgba(0,0,0,.07)');
-  const carHere=Math.abs(CAR.z-z)<.01||(P.inCar&&Math.round(CAR.z)===z);
-  if(carHere)drawCar(g);else{g.fillStyle='#1b1d21';g.fillRect(CAR.x,CAR.y,CAR.w,CAR.h+.2)}
-  drawFurn(g,F);drawWalls(g,F);
+  drawLift(g,CAR,z);
+}
+function drawOfficeTop(g,z){
+  const o=OFFICE;
   // windows
   g.fillStyle='#a9d6ec';
   for(const x of winStarts(z,true,false))g.fillRect(x,o.y+.08,WIN.len,.14);
   for(const x of winStarts(z,true,true))g.fillRect(x,o.y+o.h-.22,WIN.len,.14);
   for(const y of winStarts(z,false,false)){g.fillRect(o.x+.08,y,.14,WIN.len);g.fillRect(o.x+o.w-.22,y,.14,WIN.len)}
   if(z===0){g.fillStyle='#a9d6ec';g.fillRect(66.9,65.75,.1,.9);g.fillRect(69,65.75,.1,.9)}
-  drawCarDoor(g,doorOpen(z));
+  drawLiftDoor(g,CAR,z);
 }
-const doorOpen=z=>Math.abs(CAR.z-z)<.01?CAR.door:0;
-const doorHalf=o=>CARDOOR.w/2*(1-o*.92);
-function drawCarDoor(g,o){
-  const d=CARDOOR,hw=doorHalf(o);
+const doorOpen=(l,z)=>Math.abs(l.z-z)<.01?l.door:0;
+const doorHalf=(l,o)=>l.dr.w/2*(1-o*.92);
+function drawLift(g,l,z){
+  g.fillStyle='rgba(240,182,58,.35)';g.fillRect(l.x+.3,l.y+2.4,1.6,1.1);
+  text(g,'LIFT',l.x+1.1,l.y+2.95,.42,'rgba(40,44,52,.7)');
+  if(Math.abs(l.z-z)<.01||(P.lift===l&&Math.round(l.z)===z))drawCar(g,l);
+  else{g.fillStyle='#1b1d21';g.fillRect(l.x,l.y,l.w,l.h+.2)}
+}
+function drawLiftDoor(g,l,z){
+  const d=l.dr,hw=doorHalf(l,doorOpen(l,z));
   g.fillStyle='#aeb4bc';g.fillRect(d.x,d.y+.04,hw,d.h-.08);g.fillRect(d.x+d.w-hw,d.y+.04,hw,d.h-.08);
   g.fillStyle='#6d737b';g.fillRect(d.x+hw-.03,d.y+.04,.03,d.h-.08);g.fillRect(d.x+d.w-hw,d.y+.04,.03,d.h-.08);
 }
-function drawCar(g){
-  const c=CAR;
+function drawCar(g,c){
   g.fillStyle='#c9cdd3';g.fillRect(c.x,c.y,c.w,c.h+.2);
   g.strokeStyle='rgba(0,0,0,.12)';g.lineWidth=.04;g.strokeRect(c.x+.25,c.y+.25,c.w-.5,c.h-.5);
   g.fillStyle='#8f959d';g.fillRect(c.x+.08,c.y+.08,c.w-.16,.1);g.fillRect(c.x+.08,c.y+.3,.1,c.h-.6);g.fillRect(c.x+c.w-.18,c.y+.3,.1,c.h-.6);
-  const lab=CAR.moving?(CAR.target>CAR.z?'▲ ':'▼ ')+(Math.round(CAR.z)+1):String(Math.round(CAR.z)+1);
+  const lab=c.moving?(c.target>c.z?'▲ ':'▼ ')+(Math.round(c.z)+1):String(Math.round(c.z)+1);
   text(g,lab,c.x+c.w/2,c.y+.75,.5,'rgba(30,34,40,.6)');
+}
+function drawTowerFloor(g,z){
+  if(z>TTOP)return;
+  const t=TOWER;
+  g.fillStyle='#cdbfa6';g.fillRect(t.x,t.y,t.w,t.h);                          // flats
+  if(z===MYFLAT.z){const m=MYRECT;
+    g.fillStyle='#d9c8a4';g.fillRect(m.x,m.y,m.w,m.h);
+    g.strokeStyle='rgba(0,0,0,.07)';g.lineWidth=.04;g.beginPath();for(let x=m.x;x<m.x+m.w;x+=.35){g.moveTo(x,m.y);g.lineTo(x,m.y+m.h)}g.stroke();
+    g.fillStyle='#dfe7ea';g.fillRect(28.2,56,2,2.8);grid(g,{x:28.2,y:56,w:2,h:2.8},.4,'rgba(0,0,0,.08)');
+    g.fillStyle='#a9584a';g.fillRect(29.4,59.5,1.6,2.6);g.fillStyle='rgba(255,255,255,.12)';g.fillRect(29.55,59.65,1.3,2.3)}
+  g.fillStyle='#8e98a3';g.fillRect(22.3,54,23.4,1.8);                          // corridor carpet
+  g.fillStyle='rgba(255,255,255,.1)';g.fillRect(22.3,54.75,23.4,.3);
+  g.fillStyle='#b8b7b2';g.fillRect(30,50.6,8.2,3.2);                           // stair core
+  if(z===0){g.fillStyle='#ddd6c8';g.fillRect(28.2,54,11.8,11.7);grid(g,{x:28.2,y:54,w:11.8,h:11.7},1.5,'rgba(0,0,0,.08)');
+    g.fillStyle='#3d5a80';g.fillRect(32.6,62.5,2.8,3.2);text(g,'MAIL',29.6,59.1,.36,'rgba(40,44,52,.6)',Math.PI/2)}
+  text(g,String(z+1),44.4,54.9,1.2,'rgba(255,255,255,.4)');
+  for(const d of FLATDOORS)if(d.z===z)text(g,d.name,d.x+.5,d.y<55?54.42:55.4,.3,d.mine?'#fff':'rgba(255,255,255,.6)');
+  drawLift(g,TLIFT,z);
+}
+function drawTowerTop(g,z){
+  if(z>TTOP)return;
+  g.fillStyle='#a9d6ec';for(const w of FL[z].wins)g.fillRect(w.x,w.y,w.w,w.h);
+  if(z===0){g.fillRect(32.9,65.75,.1,.9);g.fillRect(35,65.75,.1,.9)}
+  for(const d of FLATDOORS){if(d.z!==z)continue;
+    g.fillStyle=d.mine?'#3f9a63':'#6b4a32';g.fillRect(d.x,d.y+.03,d.w*(1-d.open),d.h-.06);
+    if(!d.mine){g.fillStyle='#c9a24a';g.fillRect(d.x+.8,d.y+.06,.1,.08)}}
+  drawLiftDoor(g,TLIFT,z);
 }
 function drawStair(g,s){
   const vert=s.dir==='N'||s.dir==='S',L=vert?s.h:s.w,Wd=vert?s.w:s.h;
@@ -751,7 +861,7 @@ function render(){
   // height), then what the player has line of sight to in full colour on top.
   // On a flight of stairs there are two views: out of the bottom onto the lower
   // floor and out of the top onto the upper one.
-  const st=P.inCar?undefined:STAIRS.find(s=>P.z>s.zl&&P.z<s.zh);
+  const st=P.lift?undefined:STAIRS.find(s=>P.z>s.zl&&P.z<s.zh);
   if(st){
     const t=(P.z-st.zl)/(st.zh-st.zl);
     paintLevel(bufA,st.zl);paintLevel(bufB,st.zh);
@@ -775,27 +885,40 @@ function render(){
     ctx.fillStyle='rgba(255,255,255,.6)';disc(ctx,joy.ox+dx,joy.oy+dy,24);ctx.fill()}
   updateHud();
 }
-const locEl=document.getElementById('loc'),elevEl=document.getElementById('elev');let lastLoc='';
+const locEl=document.getElementById('loc'),elevEl=document.getElementById('elev');let lastLoc='',hudLift=null;
 function locName(){
-  if(P.inCar)return'Lift · '+(CAR.moving?(CAR.target>CAR.z?'going up':'going down'):'Floor '+(Math.round(CAR.z)+1));
+  if(P.lift){const l=P.lift;return'Lift · '+(l.moving?(l.target>l.z?'going up':'going down')+' · '+(Math.round(l.z)+1):'Floor '+(Math.round(l.z)+1))}
   if(P.train)return'Train · '+(P.train.phase==='run'?'to '+STATIONS[P.train.to].name:'at '+STATIONS[P.train.st].name);
   const sn=STATIONS[P.x<400?0:1].name;
   if(P.z<-1.5)return sn+' Station · Platform';if(P.z<-.5)return sn+' Station · Concourse';
   if(P.z<-.01)return sn+' Station entrance';
   if(P.x>400)return P.y<60?'Harbor Pier':P.y<72?'Harbor Quay':'Harbor Square';
   if(inRect(P.x,P.y,OFFICE))return'Office · '+(P.z%1?'Stairs':'Floor '+(Math.round(P.z)+1));
+  if(inRect(P.x,P.y,TOWER)){
+    if(P.z%1)return'Apartments · Stairs';
+    if(P.z===MYFLAT.z&&inRect(P.x,P.y,MYRECT))return'Home · Flat '+MYDOOR.name;
+    for(const d of FLATDOORS)if(d.z===P.z&&Math.hypot(P.x-(d.x+.5),P.y-(d.y+.1))<.9)return d.mine?'Flat '+d.name+' · your key fits':'Flat '+d.name+' · locked';
+    return'Apartments · '+(P.z===0?'Lobby':'Floor '+(P.z+1));
+  }
   if(inRect(P.x,P.y,PARK))return'Park';if(inRect(P.x,P.y,PLAZA))return'Station Plaza';
   if(P.y>=66&&P.y<=86)return'Main Avenue';if(P.x>=86&&P.x<=104)return'Cross Street';return'Back alley';
 }
 function updateHud(){
   const l=locName();if(l!==lastLoc){lastLoc=l;locEl.textContent=l}
-  elevEl.style.display=P.inCar?'flex':'none';
-  if(P.inCar)for(const b of elevEl.children){const f=+b.dataset.f;b.classList.toggle('on',CAR.target===f||pendingBtn===f||(CAR.target===null&&CAR.z===f))}
+  if(P.lift!==hudLift){ // (re)build the floor buttons for whichever lift we are in
+    hudLift=P.lift;elevEl.innerHTML='';
+    if(hudLift){const n=hudLift.zmax-hudLift.zmin+1,cols=n>5?2:1;elevEl.style.setProperty('--cols',cols);
+      const fs=[];for(let f=hudLift.zmax;f>=hudLift.zmin;f--)fs.push(f);
+      if(cols===2)for(let i=0;i<fs.length;i+=2)[fs[i],fs[i+1]]=[fs[i+1],fs[i]];   // read left-to-right, top floor at the top
+      for(const f of fs){const b=document.createElement('button');b.dataset.f=f;b.textContent=f+1;elevEl.appendChild(b)}}
+    elevEl.style.display=hudLift?'grid':'none';
+  }
+  if(P.lift){const l=P.lift;for(const b of elevEl.children){const f=+b.dataset.f;b.classList.toggle('on',l.target===f||pendingBtn===f||(l.target===null&&l.z===f))}}
 }
 
 // ---------------------------------------------------------------- input
 addEventListener('keydown',e=>{keys.add(e.code);
-  if(e.code==='Digit1'||e.code==='Digit2'||e.code==='Digit3'){if(P.inCar)pendingBtn=+e.code.slice(5)-1}
+  if(/^Digit\d$/.test(e.code)&&P.lift)pendingBtn=(+e.code.slice(5)+9)%10;   // 1..9, and 0 for the tenth floor
   if(e.code.startsWith('Arrow')||e.code==='Space')e.preventDefault()});
 addEventListener('keyup',e=>keys.delete(e.code));
 addEventListener('blur',()=>{keys.clear();joy=null});
@@ -806,13 +929,13 @@ const endJoy=e=>{if(joy&&e.pointerId===joy.id)joy=null};
 cv.addEventListener('pointerup',endJoy);cv.addEventListener('pointercancel',endJoy);
 addEventListener('contextmenu',e=>e.preventDefault());
 document.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
-for(const b of elevEl.children)b.addEventListener('pointerdown',e=>{e.preventDefault();if(P.inCar)pendingBtn=+b.dataset.f});
+elevEl.addEventListener('pointerdown',e=>{e.preventDefault();const f=e.target.dataset&&e.target.dataset.f;if(P.lift&&f!==undefined)pendingBtn=+f});
 
 // ---------------------------------------------------------------- loop
 let last=performance.now();
 function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;tick(dt);render();requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
-window.G={P,CAR,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
+window.G={P,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
 </script>
 </body>
 </html>
