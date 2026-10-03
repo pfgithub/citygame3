@@ -453,13 +453,29 @@ function drawStair(g,s){
   else if(s.dir==='S'){g.translate(s.x+s.w/2,s.y);g.rotate(Math.PI/2)}
   else if(s.dir==='E')g.translate(s.x,s.y+s.h/2);
   else{g.translate(s.x+s.w,s.y+s.h/2);g.rotate(Math.PI)}
+  // Each step is lit by how close it is (in height) to the player: the steps
+  // near you are bright, the far half of the flight is dark.
+  const pt=(P.z-s.zl)/(s.zh-s.zl),lit=u=>clamp(1-Math.pow(Math.abs(u-pt)/.56,2.5));
+  g.fillStyle=C.dark;g.fillRect(0,-Wd/2,L,Wd);
   const n=Math.round(L/.32),st=L/n;
-  for(let i=0;i<n;i++){const v=Math.round(lerp(118,214,i/(n-1)));g.fillStyle=`rgb(${v},${v-3},${v-9})`;g.fillRect(i*st,-Wd/2,st+.01,Wd)}
-  g.strokeStyle='rgba(0,0,0,.22)';g.lineWidth=.035;g.beginPath();for(let i=1;i<n;i++){g.moveTo(i*st,-Wd/2);g.lineTo(i*st,Wd/2)}g.stroke();
-  g.strokeStyle='rgba(255,255,255,.7)';g.lineWidth=.09;g.lineCap='round';g.lineJoin='round';g.beginPath();
-  const a=Math.min(.38,Wd*.22);for(let x=L*.25;x<L*.9;x+=L*.25){g.moveTo(x-a,-a);g.lineTo(x,0);g.lineTo(x-a,a)}g.stroke();
+  for(let i=0;i<n;i++){const a=lit((i+.5)/n);if(a<.004)continue;g.globalAlpha=a;
+    const v=Math.round(lerp(118,214,i/(n-1)));g.fillStyle=`rgb(${v},${v-3},${v-9})`;g.fillRect(i*st,-Wd/2,st+.01,Wd);
+    g.fillStyle='rgba(0,0,0,.22)';g.fillRect(i*st,-Wd/2,.035,Wd)}
+  g.strokeStyle='rgba(255,255,255,.7)';g.lineWidth=.09;g.lineCap='round';g.lineJoin='round';
+  const a=Math.min(.38,Wd*.22);for(let x=L*.25;x<L*.9;x+=L*.25){g.globalAlpha=lit(x/L);g.beginPath();g.moveTo(x-a,-a);g.lineTo(x,0);g.lineTo(x-a,a);g.stroke()}
+  g.globalAlpha=1;
   g.restore();g.lineCap='butt';
   g.fillStyle=C.wall;for(const w of s.sides)g.fillRect(w.x,w.y,w.w,w.h);
+}
+const SUBCOVER={x:109.5,y:93.3,w:4,h:9.2};
+function drawSubwayCover(g){
+  const c=SUBCOVER;
+  g.fillStyle='rgba(0,0,0,.22)';g.fillRect(c.x+.8,c.y+.8,c.w,c.h);
+  g.fillStyle='#56616d';g.fillRect(c.x,c.y,c.w,c.h);
+  g.fillStyle='#8fb4c8';for(let k=0;k<4;k++)g.fillRect(c.x+.3,c.y+.3+k*2.2,c.w-.6,1.95);
+  g.fillStyle='#56616d';g.fillRect(c.x+c.w/2-.08,c.y,.16,c.h);
+  g.fillStyle='rgba(255,255,255,.18)';for(let k=0;k<4;k++)g.fillRect(c.x+.3,c.y+.3+k*2.2,c.w-.6,.5);
+  g.strokeStyle='rgba(0,0,0,.3)';g.lineWidth=.1;g.strokeRect(c.x,c.y,c.w,c.h);
 }
 function drawConcourse(g){
   const F=FL[-1],c=CONC;
@@ -528,19 +544,20 @@ function render(){
   S=Math.min(W,H)/view;TX=W/2-P.x*S;TY=H/2-P.y*S;
   VB.x0=-TX/S;VB.y0=-TY/S;VB.x1=(W-TX)/S;VB.y1=(H-TY)/S;
   ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle=C.dark;ctx.fillRect(0,0,W,H);
-  const z=P.z,fa=l=>clamp(1-Math.abs(z-l));
-  const gOut=z<0?clamp(1+z):Math.max(.28,1-z);
+  const z=P.z,fa=l=>clamp(1-2*Math.abs(z-l));
+  const gOut=z<0?clamp(1+2*z):Math.max(clamp(1-2*z),.28*clamp(2*z-1));
   layer(gOut,drawOutdoor);
   layer(fa(-2),drawPlatform);
   layer(fa(-1),drawConcourse);
   for(const l of[0,1,2])layer(fa(l),g=>drawOfficeFloor(g,l));
-  for(const s of STAIRS)layer(z<s.zl?clamp(1-(s.zl-z)):z>s.zh?clamp(1-(z-s.zh)):1,g=>drawStair(g,s));
+  for(const s of STAIRS)layer(z<s.zl?clamp(1-2*(s.zl-z)):z>s.zh?clamp(1-2*(z-s.zh)):1,g=>drawStair(g,s));
+  layer(gOut*clamp(1+z*6),drawSubwayCover);
   if(!P.inCar)layer(CAR.door*clamp(1-Math.abs(z-CAR.z)),g=>drawCar(g,false));
   layer((1-bIn)*gOut,g=>{g.fillStyle='rgba(0,0,0,.22)';g.fillRect(OFFICE.x+1.4,OFFICE.y+OFFICE.h,OFFICE.w,1.4);g.fillRect(OFFICE.x+OFFICE.w,OFFICE.y+1.4,1.4,OFFICE.h-1.4);
     drawRoof(g,OFFROOF);text(g,'OFFICE',68,64.3,1.5,'rgba(255,255,255,.55)')});
   ctx.setTransform(S,0,0,S,TX,TY);
   if(!P.inCar)drawPlayer(ctx);
-  drawCanopies(ctx,gOut>.29?gOut:0);
+  drawCanopies(ctx,z>.01?0:gOut);
   if(P.inCar){ // inside the lift: the world is only as visible as the doors are open
     ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=1-CAR.door;ctx.fillStyle=C.dark;ctx.fillRect(0,0,W,H);ctx.globalAlpha=1;
     ctx.setTransform(S,0,0,S,TX,TY);drawCar(ctx,true);drawPlayer(ctx);
