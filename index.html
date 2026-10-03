@@ -44,7 +44,8 @@ const inRect=(px,py,r)=>px>=r.x&&px<=r.x+r.w&&py>=r.y&&py<=r.y+r.h;
 function segDist(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1;
   const t=clamp(((px-x1)*dx+(py-y1)*dy)/(dx*dx+dy*dy||1));return Math.hypot(px-x1-dx*t,py-y1-dy*t)}
 
-const WORLD={w:200,h:160};
+// Walkable surface regions: the city, and the harbour at the far end of the subway line.
+const REGIONS=[{x0:0,y0:0,x1:200,y1:160},{x0:560,y0:42,x1:680,y1:130}];
 const R=0.25;                       // player radius (shoulder width 0.5 m)
 const VIEW_OUT=34, VIEW_IN=12;      // metres visible across the short screen side
 const SPEED_IN=3.6;                 // m/s when fully zoomed in; scales with zoom
@@ -141,23 +142,76 @@ ffurn(2,78.4,48,3,1,'#5d6f86');ffurn(2,80.5,49.4,1,3,'#5d6f86');
 for(const[x,y]of[[80.9,64.9],[55.1,64.9],[69.2,49.6]])fround(2,x,y,.42,'#4f8a55');
 
 // ---------------------------------------------------------------- subway
-const stS1=addStair(110,92,3,10,'N',-1,0);       // street -> concourse
-const stS2=addStair(128,112,10,3,'W',-2,-1);     // concourse -> platform
-const CONC={x:104,y:102,w:38,h:15};
-fwall(-1,103.7,101.7,6.1,.3);fwall(-1,113.2,101.7,29.1,.3);
-fwall(-1,103.7,101.7,.3,15.6);fwall(-1,142,101.7,.3,15.6);fwall(-1,103.7,117,38.6,.3);
-fwall(-1,120.9,102,.2,3);fwall(-1,120.9,114.1,.2,2.9);
-for(let k=0;k<9;k++)ffurn(-1,120.4,105+k*1.1,1.2,.3,'#8e949c',{turn:1});
-ffurn(-1,120.4,114.1-.3,1.2,.3,'#8e949c');
-for(let k=0;k<3;k++)ffurn(-1,114.2+k*1.5,102,1.1,.7,'#3f6fb0');
-ffurn(-1,104,108,.5,3,'#e9e4d6');ffurn(-1,124,102,6,.35,'#e9e4d6');
-ffurn(-1,105.5,116.3,2,.6,'#7a6248');ffurn(-1,109,116.3,2,.6,'#7a6248');
-const PLAT={x:100,y:107,w:90,h:13};
-fwall(-2,100,106.8,90,.2,false);fwall(-2,100,120,90,.2,false);fwall(-2,99.7,106.8,.3,13.4);fwall(-2,190,106.8,.3,13.4);
-for(let x=106;x<188;x+=9){if(x>124&&x<141)continue;
-  ffurn(-2,x-.3,109.6,.6,.6,'#6f757d');ffurn(-2,x-.3,116.8,.6,.6,'#6f757d')}
-for(const x of[108,152,170])ffurn(-2,x,113.2,2.2,.6,'#7a6248');
-const BOX={x:96,y:102.5,w:98,h:22};
+// One line, two stations LINE_D apart, one train shuttling on each track.
+// Stations are identical boxes; everything is built at an x offset.
+const LINE_D=500,TL=74,TW=2.9,TRUN=24,TDWELL=11,DOCK=108,TDW=1.3;
+const STATIONS=[{dx:0,name:'Central'},{dx:LINE_D,name:'Harbor'}];
+const TDOORS=[];for(let i=0;i<4;i++)for(const d of[4.2,9.3,14.3])TDOORS.push(i*18.5+d);   // door offsets along a train
+const TRACKY=[103.9,120.2];   // top edge of the train on the north / south track
+const EDGEY=[106.8,120];      // platform screen wall on each side
+const CONC={x:104,y:102,w:38,h:15},PLAT={x:100,y:107,w:90,h:13};
+function buildStation(st){
+  const dx=st.dx;
+  addStair(dx+110,92,3,10,'N',-1,0);       // street -> concourse
+  addStair(dx+128,112,10,3,'W',-2,-1);     // concourse -> platform
+  fwall(-1,dx+103.7,101.7,6.1,.3);fwall(-1,dx+113.2,101.7,29.1,.3);
+  fwall(-1,dx+103.7,101.7,.3,15.6);fwall(-1,dx+142,101.7,.3,15.6);fwall(-1,dx+103.7,117,38.6,.3);
+  fwall(-1,dx+120.9,102,.2,3);fwall(-1,dx+120.9,114.1,.2,2.9);
+  for(let k=0;k<9;k++)ffurn(-1,dx+120.4,105+k*1.1,1.2,.3,'#8e949c',{turn:1});
+  ffurn(-1,dx+120.4,114.1-.3,1.2,.3,'#8e949c');
+  for(let k=0;k<3;k++)ffurn(-1,dx+114.2+k*1.5,102,1.1,.7,'#3f6fb0');
+  ffurn(-1,dx+104,108,.5,3,'#e9e4d6');ffurn(-1,dx+124,102,6,.35,'#e9e4d6');
+  ffurn(-1,dx+105.5,116.3,2,.6,'#7a6248');ffurn(-1,dx+109,116.3,2,.6,'#7a6248');
+  fwall(-2,dx+99.7,106.8,.3,13.4);fwall(-2,dx+190,106.8,.3,13.4);
+  // platform screen walls, with a gap wherever a docked train has a door
+  st.screens=[];
+  for(const ey of EDGEY){let c=dx+100;
+    const scr=(a,b)=>{st.screens.push({x:a,y:ey,w:b-a,h:.2});box(a,ey,b-a,.2,-2.5,-1.5)};
+    for(const o of TDOORS){scr(c,dx+DOCK+o);c=dx+DOCK+o+TDW}scr(c,dx+190)}
+  for(let x=106;x<188;x+=9){if(x>124&&x<141)continue;
+    ffurn(-2,dx+x-.3,109.6,.6,.6,'#6f757d');ffurn(-2,dx+x-.3,116.8,.6,.6,'#6f757d')}
+  for(const x of[108,152,170])ffurn(-2,dx+x,113.2,2.2,.6,'#7a6248');
+}
+STATIONS.forEach(buildStation);
+const TRAINS=[
+  {track:0,st:0,to:0,x:DOCK,phase:'dwell',t:0,u:0,door:0,col:'#d2452f'},
+  {track:1,st:1,to:1,x:DOCK+LINE_D,phase:'dwell',t:0,u:0,door:0,col:'#2f6fd2'}];
+// The solid parts of a train where it is right now: hull walls, and its doors.
+function trainParts(tr){
+  const x=tr.x,y=TRACKY[tr.track],t=.15,ps=tr.track?y:y+TW-t,fs=tr.track?y+TW-t:y,z={za:-2.5,zb:-1.5};
+  const walls=[{x,y:fs,w:TL,h:t,...z},{x,y,w:t,h:TW,...z},{x:x+TL-t,y,w:t,h:TW,...z}],doors=[];
+  let c=x;for(const o of TDOORS){walls.push({x:c,y:ps,w:x+o-c,h:t,...z});doors.push({x:x+o,y:ps,w:TDW,h:t,...z});c=x+o+TDW}
+  walls.push({x:c,y:ps,w:x+TL-c,h:t,...z});
+  return{walls,doors,y,ps,fs};
+}
+const dockedDoor=(si,k)=>{for(const tr of TRAINS)if(tr.track===k&&tr.st===si&&tr.phase!=='run')return tr.door;return 0};
+function updateTrains(dt){
+  P.train=null;
+  for(const tr of TRAINS){
+    const y=TRACKY[tr.track],under=Math.abs(P.z+2)<.01,ox=tr.x;
+    const aboard=under&&P.x>tr.x&&P.x<tr.x+TL&&P.y>y&&P.y<y+TW;
+    if(tr.phase==='dwell'){tr.door=Math.min(1,tr.door+dt/.8);tr.t+=dt;if(tr.t>TDWELL)tr.phase='closing'}
+    else if(tr.phase==='closing'){ // doors never close on the player
+      const blocked=under&&Math.abs(P.y-(tr.track?120.175:106.825))<R+.23&&P.x>tr.x-R&&P.x<tr.x+TL+R;
+      if(blocked)tr.door=Math.min(1,tr.door+dt/.8);
+      else{tr.door=Math.max(0,tr.door-dt/.8);if(tr.door===0){tr.phase='run';tr.u=0;tr.to=1-tr.st}}
+    }else{
+      tr.u=Math.min(1,tr.u+dt/TRUN);const u=tr.u;
+      tr.x=DOCK+lerp(STATIONS[tr.st].dx,STATIONS[tr.to].dx,u*u*u*(u*(u*6-15)+10));
+      if(u>=1){tr.st=tr.to;tr.phase='dwell';tr.t=0}
+    }
+    if(aboard){P.x+=tr.x-ox;P.train=tr}   // riders are carried along
+  }
+}
+// Colliders that move or open: rebuilt every tick.
+const DYN=[];
+function buildDyn(){
+  DYN.length=0;
+  if(P.z>-1.5)return;
+  for(const tr of TRAINS){const p=trainParts(tr);DYN.push(...p.walls);if(tr.door<.8)DYN.push(...p.doors)}
+  STATIONS.forEach((st,si)=>{for(let k=0;k<2;k++)if(dockedDoor(si,k)<.8)
+    for(const o of TDOORS)DYN.push({x:st.dx+DOCK+o,y:EDGEY[k],w:TDW,h:.2,za:-2.5,zb:-1.5})});
+}
 
 // ---------------------------------------------------------------- outdoors
 const OUT={roofs:[],trees:[],lamps:[],cars:[],benches:[],planters:[],fence:[]};
@@ -213,20 +267,32 @@ function car(x,y){const c={x,y,w:rr(4.2,4.8),h:1.85,c:pick(CARC)};OUT.cars.push(
 for(const x of[6,12.5,26,39,45.5,58,74,112,125,131.5,152,165,184])car(x,70.2);
 for(const x of[10,23,29.5,50,63,69.5,116,138,144.5,158,177,190])car(x,79.95);
 
+// harbour: the surface around the second station
+const HARBOR={x:560,y:42,w:120,h:88},HPLANT=[[590,78,6,1.4],[628,78,6,1.4]],BOLLARDS=[];
+building(520,56,44,90);building(676,56,44,90);building(564,108,50,40);building(618,108,58,40);building(644,82,9,6);
+fenceSeg(564,60,617,60);fenceSeg(623,60,676,60);fenceSeg(617,42,617,60);fenceSeg(623,42,623,60);fenceSeg(617,42,623,42);
+for(let x=570;x<676;x+=8){if(x>612&&x<628)continue;circ(x,61,.22);BOLLARDS.push(x)}
+for(const x of[580,596,640,656])bench(x,63.5,1.8,.6);
+for(const x of[574,598,634,662])lamp(x,73);
+for(const[x,y,w,h]of HPLANT)box(x,y,w,h);
+tree(585,86,2.8,true);tree(600,98,2.4,true);tree(634,98,2.6,true);tree(664,92,3,true);
+circ(608.6,90.8,.12);
+
 // ---------------------------------------------------------------- state
-const P={x:68,y:68.2,z:0,a:-Math.PI/2,inCar:false,walk:0};
+const P={x:68,y:68.2,z:0,a:-Math.PI/2,inCar:false,train:null,walk:0};
 let view=VIEW_OUT,indoor=0,bIn=0,time=0,pendingBtn=null,moved=false;
 const keys=new Set();let joy=null;const input={x:0,y:0,override:null};
 
 // ---------------------------------------------------------------- simulation
 function collide(){
   for(let it=0;it<4;it++){
-    for(let i=0;i<=COL.length;i++){
+    const n=COL.length,m=n+DYN.length;
+    for(let i=0;i<=m;i++){
       let c;
-      if(i===COL.length){ // elevator door, closed unless the car is here and open
+      if(i===m){ // elevator door, closed unless the car is here and open
         if(Math.abs(P.z-CAR.z)<.01&&CAR.door>.8)break;
         c=CARDOOR;
-      }else{c=COL[i];if(P.z<c.za||P.z>=c.zb)continue}
+      }else{c=i<n?COL[i]:DYN[i-n];if(P.z<c.za||P.z>=c.zb)continue}
       if(c.r!==undefined){
         const dx=P.x-c.cx,dy=P.y-c.cy,d=Math.hypot(dx,dy),m=R+c.r;
         if(d<m){if(d>1e-6){P.x+=dx/d*(m-d);P.y+=dy/d*(m-d)}else P.x+=m}
@@ -239,7 +305,7 @@ function collide(){
       }
     }
   }
-  P.x=clamp(P.x,R,WORLD.w-R);P.y=clamp(P.y,R,WORLD.h-R);
+  if(P.z>-.5){const r=REGIONS[P.x<400?0:1];P.x=clamp(P.x,r.x0+R,r.x1-R);P.y=clamp(P.y,r.y0+R,r.y1-R)}
 }
 function updateZ(){
   if(P.inCar){if(!inRect(P.x,P.y,CAR))P.inCar=false;else{P.z=CAR.z;return}}
@@ -287,6 +353,7 @@ function updateIndoor(dt){
 }
 function tick(dt){
   time+=dt;
+  updateTrains(dt);buildDyn();
   let ix=0,iy=0;
   if(input.override){ix=input.override.x;iy=input.override.y}
   else{
@@ -404,6 +471,7 @@ const C={road:'#4b4f57',walk:'#c8c5bc',curb:'#a9a69d',inner:'#aaa79e',grass:'#7f
 
 function drawOutdoor(g){
   g.fillStyle=C.road;g.fillRect(VB.x0,VB.y0,VB.x1-VB.x0,VB.y1-VB.y0);
+  if(VB.x0>350)drawHarborGround(g);else{
   // blocks
   const blocks=[[-90,-90,180,160],[100,-90,190,160],[-90,82,180,170],[100,82,190,170]];
   g.fillStyle=C.walk;for(const b of blocks)g.fillRect(...b);
@@ -456,6 +524,7 @@ function drawOutdoor(g){
   g.fillStyle='#2a2d33';disc(g,108.6,90.8,.12);g.fill();
   g.fillStyle='#1f5fb5';disc(g,108.6,90.2,.75);g.fill();text(g,'M',108.6,90.25,1,'#fff');
   text(g,'SUBWAY',111.5,90.6,.7,'rgba(40,44,52,.75)');
+  }
   // benches, lamps, cars
   for(const b of OUT.benches){if(!vis(b.x,b.y,b.w,b.h))continue;g.fillStyle='#7a5a3c';g.fillRect(b.x,b.y,b.w,b.h);
     g.fillStyle='rgba(0,0,0,.18)';b.w>b.h?g.fillRect(b.x,b.y+b.h*.42,b.w,b.h*.16):g.fillRect(b.x+b.w*.42,b.y,b.w*.16,b.h)}
@@ -472,6 +541,34 @@ function drawOutdoor(g){
   // roofs
   g.fillStyle='rgba(0,0,0,.22)';for(const b of OUT.roofs)if(vis(b.x,b.y,b.w+2,b.h+2))g.fillRect(b.x+1.4,b.y+1.4,b.w,b.h);
   for(const b of OUT.roofs)if(vis(b.x,b.y,b.w,b.h))drawRoof(g,b);
+}
+function drawHarborGround(g){
+  const x0=VB.x0-1,w=VB.x1-VB.x0+2;
+  g.fillStyle='#c4bfb2';g.fillRect(x0,VB.y0-1,w,VB.y1-VB.y0+2);
+  g.strokeStyle='rgba(0,0,0,.07)';g.lineWidth=.06;g.beginPath();
+  for(let x=564;x<=676;x+=2){g.moveTo(x,72);g.lineTo(x,108)}for(let y=72;y<=108;y+=2){g.moveTo(564,y);g.lineTo(676,y)}g.stroke();
+  g.fillStyle='#a39e92';g.fillRect(x0,60,w,12);
+  // water
+  g.fillStyle='#4f8db3';g.fillRect(x0,VB.y0-1,w,60-(VB.y0-1));
+  g.strokeStyle='rgba(255,255,255,.14)';g.lineWidth=.12;g.setLineDash([2.2,5]);
+  for(let y=Math.floor(VB.y0/3)*3;y<59;y+=3){g.lineDashOffset=-time*1.2+y*2.3;g.beginPath();g.moveTo(x0,y);g.lineTo(x0+w,y);g.stroke()}
+  g.setLineDash([]);g.lineDashOffset=0;
+  for(const[x,y,bw,bh,c]of[[583,49,7,2.6,'#e9e6df'],[599,45,5,2,'#c94f3d'],[644,51,8,2.8,'#e9e6df'],[660,45.5,5,2,'#3d6fc9']]){
+    const by=y+Math.sin(time*.8+x)*.12;
+    g.fillStyle='rgba(0,0,0,.15)';rrect(g,x+.3,by+.3,bw,bh,bh*.45);g.fill();
+    g.fillStyle=c;rrect(g,x,by,bw,bh,bh*.45);g.fill();
+    g.fillStyle='rgba(0,0,0,.18)';rrect(g,x+bw*.25,by+bh*.25,bw*.45,bh*.5,.3);g.fill()}
+  g.fillStyle='#77736a';g.fillRect(x0,59.6,w,.5);
+  // pier
+  g.fillStyle='#a58a63';g.fillRect(617,42,6,18.2);
+  g.strokeStyle='rgba(0,0,0,.14)';g.lineWidth=.05;g.beginPath();for(let y=42.5;y<60;y+=.5){g.moveTo(617,y);g.lineTo(623,y)}g.stroke();
+  g.strokeStyle='#2f3a33';g.lineWidth=.14;g.beginPath();for(const f of OUT.fence){g.moveTo(f[0],f[1]);g.lineTo(f[2],f[3])}g.stroke();
+  g.fillStyle='#3a3d44';for(const x of BOLLARDS){disc(g,x,61,.22);g.fill()}
+  for(const[x,y,pw,ph]of HPLANT){g.fillStyle='#8d8778';g.fillRect(x,y,pw,ph);g.fillStyle='#5c9a58';g.fillRect(x+.2,y+.2,pw-.4,ph-.4)}
+  g.fillStyle='#2a2d33';disc(g,608.6,90.8,.12);g.fill();
+  g.fillStyle='#1f5fb5';disc(g,608.6,90.2,.75);g.fill();text(g,'M',608.6,90.25,1,'#fff');
+  text(g,'SUBWAY',611.5,90.6,.7,'rgba(40,44,52,.75)');
+  text(g,'HARBOR',620,66,2.2,'rgba(0,0,0,.1)');
 }
 function drawRoof(g,b){
   g.fillStyle=b.color;g.fillRect(b.x,b.y,b.w,b.h);
@@ -547,7 +644,8 @@ function drawStair(g,s){
   g.fillStyle=C.wall;for(const w of s.sides)g.fillRect(w.x,w.y,w.w,w.h);
 }
 const SUBCOVER={x:109.5,y:93.3,w:4,h:9.2};
-function drawSubwayCover(g){
+function drawSubwayCover(g){for(const st of STATIONS){g.save();g.translate(st.dx,0);drawCover1(g);g.restore()}}
+function drawCover1(g){
   const c=SUBCOVER;
   g.fillStyle='rgba(0,0,0,.22)';g.fillRect(c.x+.8,c.y+.8,c.w,c.h);
   g.fillStyle='#56616d';g.fillRect(c.x,c.y,c.w,c.h);
@@ -558,45 +656,72 @@ function drawSubwayCover(g){
 }
 function drawConcourse(g){
   const F=FL[-1],c=CONC;
-  g.fillStyle='#d3cdbf';g.fillRect(c.x,c.y,c.w,c.h);grid(g,c,1,'rgba(0,0,0,.07)');
-  g.fillStyle='rgba(31,95,181,.16)';g.fillRect(121.6,102,20.4,15);
-  g.fillStyle='#e7c63f';g.fillRect(110,102,3,.3);g.fillRect(127.6,112,.3,3);
-  text(g,'TICKETS',116.3,103.3,.42,'rgba(40,44,52,.65)');
-  text(g,'TRAINS  ›',124.6,113.5,.6,'rgba(40,44,52,.7)');
-  text(g,'‹  EXIT',116,109.5,.6,'rgba(40,44,52,.7)');
+  for(const st of STATIONS){
+    if(!vis(st.dx+c.x,c.y,c.w,c.h))continue;
+    g.save();g.translate(st.dx,0);
+    g.fillStyle='#d3cdbf';g.fillRect(c.x,c.y,c.w,c.h);grid(g,c,1,'rgba(0,0,0,.07)');
+    g.fillStyle='rgba(31,95,181,.16)';g.fillRect(121.6,102,20.4,15);
+    g.fillStyle='#e7c63f';g.fillRect(110,102,3,.3);g.fillRect(127.6,112,.3,3);
+    text(g,'TICKETS',116.3,103.3,.42,'rgba(40,44,52,.65)');
+    text(g,'TRAINS  ›',124.6,113.5,.6,'rgba(40,44,52,.7)');
+    text(g,'‹  EXIT',116,109.5,.6,'rgba(40,44,52,.7)');
+    text(g,st.name.toUpperCase(),132,106.5,1.3,'rgba(31,60,110,.22)');
+    g.restore();
+  }
   drawFurn(g,F);
   g.fillStyle='#3fbf6a';for(const f of F.furn)if(f.turn)g.fillRect(f.x+.1,f.y+.08,.14,.14);
   drawWalls(g,F);
 }
-function trainX(u,a,b,c){u=((u%44)+44)%44;
-  if(u<9){const q=1-u/9;return lerp(a,b,1-q*q*q)}if(u<21)return b;if(u<30){const q=(u-21)/9;return lerp(b,c,q*q*q)}return null}
-function drawTrain(g,x,y,dirE,col){
-  const L=74,n=4,cl=L/n;
-  for(let i=0;i<n;i++){const cx=x+i*cl;
-    g.fillStyle='#d9dde2';rrect(g,cx+.15,y,cl-.3,2.9,.5);g.fill();
-    g.fillStyle=col;g.fillRect(cx+.4,y+1.25,cl-.8,.4);
-    g.fillStyle='rgba(25,32,42,.75)';for(let k=0;k<5;k++)g.fillRect(cx+1.4+k*3.4,y+.3,2.2,.5),g.fillRect(cx+1.4+k*3.4,y+2.1,2.2,.5);
-    g.fillStyle='rgba(0,0,0,.25)';for(const d of[4.2,9.3,14.3])g.fillRect(cx+d,dirE?y+2.8:y,1.3,.1)}
-  g.fillStyle='rgba(255,240,180,.9)';const fx=dirE?x+L-.25:x+.1;g.fillRect(fx,y+.5,.15,.5);g.fillRect(fx,y+1.9,.15,.5);
+function drawTrain(g,tr){
+  const p=trainParts(tr),x=tr.x,y=p.y,cl=TL/4,si=tr.track?1:-1;   // si: which way the far side is
+  g.fillStyle='#d5d8dc';g.fillRect(x,y,TL,TW);
+  g.fillStyle='#8a8f96';for(let i=1;i<4;i++)g.fillRect(x+i*cl-.3,y+.15,.6,TW-.3);
+  // bench seats along both sides, leaving the doorways clear
+  g.fillStyle=tr.col;
+  for(let i=0;i<4;i++){const cx=x+i*cl;
+    g.fillRect(cx+.8,tr.track?p.fs-.45:p.fs+.15,cl-1.6,.45);
+    for(const[a,b]of[[.8,3.9],[5.8,9],[10.9,14],[15.9,17.7]])g.fillRect(cx+a,tr.track?p.ps+.15:p.ps-.45,b-a,.45)}
+  g.fillStyle='rgba(0,0,0,.2)';for(let q=x+2;q<x+TL-1;q+=18.5/6)g.fillRect(q,y+TW/2-.04,.08,.08);
+  g.fillStyle='#565c65';for(const w of p.walls)g.fillRect(w.x,w.y,w.w,w.h);
+  g.fillStyle='#a9d6ec';for(let i=0;i<4;i++)for(let k=0;k<5;k++)g.fillRect(x+i*cl+1.4+k*3.4,p.fs+.03,2.2,.09);
+  const hw=TDW/2*(1-tr.door*.92);g.fillStyle='#e9ecef';
+  for(const d of p.doors){g.fillRect(d.x,d.y+.02,hw,.11);g.fillRect(d.x+TDW-hw,d.y+.02,hw,.11)}
+  g.fillStyle='rgba(255,240,180,.95)';for(const fx of[x-.12,x+TL-.03]){g.fillRect(fx,y+.45,.15,.5);g.fillRect(fx,y+TW-.95,.15,.5)}
+}
+function trainSign(tr,si){
+  const to='to '+STATIONS[1-si].name+'  ·  ';
+  if(tr.phase!=='run'&&tr.st===si)return to+'boarding';
+  const s=tr.phase==='run'?(tr.to===si?(1-tr.u)*TRUN:(1-tr.u)*TRUN+TDWELL+1+TRUN):Math.max(0,TDWELL-tr.t)+1+TRUN;
+  return to+Math.ceil(s)+' s';
 }
 function drawPlatform(g){
-  const F=FL[-2],p=PLAT,b=BOX;
-  g.save();g.beginPath();g.rect(b.x,b.y,b.w,b.h);g.clip();
-  g.fillStyle='#24262b';g.fillRect(b.x,b.y,b.w,b.h);
-  for(const ty of[103,120.2]){g.fillStyle='#2f3238';g.fillRect(b.x,ty,b.w,3.8);
-    g.strokeStyle='#4a4038';g.lineWidth=.22;g.beginPath();for(let x=b.x;x<b.x+b.w;x+=.7){g.moveTo(x,ty+.7);g.lineTo(x,ty+3.1)}g.stroke();
-    g.strokeStyle='#9aa0a8';g.lineWidth=.08;g.beginPath();for(const o of[1.18,2.62]){g.moveTo(b.x,ty+o);g.lineTo(b.x+b.w,ty+o)}g.stroke()}
-  const xn=trainX(time,270,106,-90),xs=trainX(time+22,-170,110,280);
-  if(xn!==null)drawTrain(g,xn,103.45,false,'#d2452f');
-  if(xs!==null)drawTrain(g,xs,120.65,true,'#2f6fd2');
-  g.fillStyle='#c5c3bd';g.fillRect(p.x,p.y,p.w,p.h);grid(g,p,1,'rgba(0,0,0,.06)');
-  g.fillStyle='#e7c63f';g.fillRect(p.x,p.y+.2,p.w,.5);g.fillRect(p.x,p.y+p.h-.7,p.w,.5);
-  text(g,'‹  EXIT',143,113.5,.6,'rgba(40,44,52,.7)');
-  drawFurn(g,F);
-  g.fillStyle=C.wall;g.fillRect(99.7,106.8,.3,13.4);g.fillRect(190,106.8,.3,13.4);
-  g.fillStyle='#3a3d44';g.fillRect(b.x,b.y,b.w,.4);g.fillRect(b.x,b.y+b.h-.4,b.w,.4);
-  for(const w of F.walls)if(w.w<1){g.fillStyle=C.wall;g.fillRect(w.x,w.y,w.w,w.h)}
-  g.restore();
+  const F=FL[-2],p=PLAT,x0=VB.x0-1,w=VB.x1-VB.x0+2;
+  g.fillStyle='#0f1013';g.fillRect(x0,VB.y0-1,w,VB.y1-VB.y0+2);
+  for(const st of STATIONS)if(vis(st.dx+96,103.3,98,20.4)){g.fillStyle='#24262b';g.fillRect(st.dx+96,103.3,98,20.4)}
+  // the two running tunnels
+  for(const ty of[103.3,120.2]){
+    g.fillStyle='#2a2c31';g.fillRect(x0,ty,w,3.5);
+    g.strokeStyle='#4a4038';g.lineWidth=.22;g.beginPath();for(let x=Math.floor(x0/.7)*.7;x<x0+w;x+=.7){g.moveTo(x,ty+.55);g.lineTo(x,ty+2.95)}g.stroke();
+    g.strokeStyle='#9aa0a8';g.lineWidth=.08;g.beginPath();for(const o of[1.03,2.47]){g.moveTo(x0,ty+o);g.lineTo(x0+w,ty+o)}g.stroke();
+    g.fillStyle='#ffe9a8';for(let x=Math.floor(x0/10)*10;x<x0+w;x+=10)g.fillRect(x,ty===103.3?ty:ty+3.38,.7,.12);
+  }
+  for(const tr of TRAINS)if(vis(tr.x,TRACKY[tr.track],TL,TW))drawTrain(g,tr);
+  STATIONS.forEach((st,si)=>{
+    if(!vis(st.dx+96,103,98,21))return;
+    g.save();g.translate(st.dx,0);
+    g.fillStyle='#c5c3bd';g.fillRect(p.x,p.y,p.w,p.h);grid(g,p,1,'rgba(0,0,0,.06)');
+    g.fillStyle='#e7c63f';g.fillRect(p.x,p.y+.2,p.w,.4);g.fillRect(p.x,p.y+p.h-.6,p.w,.4);
+    text(g,'‹  EXIT',143,113.5,.6,'rgba(40,44,52,.7)');
+    text(g,st.name.toUpperCase(),164,113.5,1.6,'rgba(0,0,0,.13)');
+    for(let k=0;k<2;k++){const tr=TRAINS[k],ty=k?118.7:108.3;
+      for(const sx of[118,150,178])text(g,trainSign(tr,si),sx,ty,.5,'rgba(40,44,52,.75)')}
+    g.restore();
+    // platform screen: glass wall with doors that open onto a docked train
+    g.fillStyle='rgba(150,205,230,.85)';for(const r of st.screens)g.fillRect(r.x,r.y+.04,r.w,r.h-.08);
+    for(let k=0;k<2;k++){const hw=TDW/2*(1-dockedDoor(si,k)*.92);g.fillStyle='#eef0f2';
+      for(const o of TDOORS){const dx=st.dx+DOCK+o;g.fillRect(dx,EDGEY[k]+.03,hw,.14);g.fillRect(dx+TDW-hw,EDGEY[k]+.03,hw,.14)}}
+  });
+  drawFurn(g,F);drawWalls(g,F);
 }
 function drawPlayer(g){
   g.save();g.translate(P.x,P.y);
@@ -653,8 +778,11 @@ function render(){
 const locEl=document.getElementById('loc'),elevEl=document.getElementById('elev');let lastLoc='';
 function locName(){
   if(P.inCar)return'Lift · '+(CAR.moving?(CAR.target>CAR.z?'going up':'going down'):'Floor '+(Math.round(CAR.z)+1));
-  if(P.z<-1.5)return'Subway · Platform';if(P.z<-.5)return'Subway · Concourse';
-  if(P.z<-.01)return'Subway entrance';
+  if(P.train)return'Train · '+(P.train.phase==='run'?'to '+STATIONS[P.train.to].name:'at '+STATIONS[P.train.st].name);
+  const sn=STATIONS[P.x<400?0:1].name;
+  if(P.z<-1.5)return sn+' Station · Platform';if(P.z<-.5)return sn+' Station · Concourse';
+  if(P.z<-.01)return sn+' Station entrance';
+  if(P.x>400)return P.y<60?'Harbor Pier':P.y<72?'Harbor Quay':'Harbor Square';
   if(inRect(P.x,P.y,OFFICE))return'Office · '+(P.z%1?'Stairs':'Floor '+(Math.round(P.z)+1));
   if(inRect(P.x,P.y,PARK))return'Park';if(inRect(P.x,P.y,PLAZA))return'Station Plaza';
   if(P.y>=66&&P.y<=86)return'Main Avenue';if(P.x>=86&&P.x<=104)return'Cross Street';return'Back alley';
@@ -684,7 +812,7 @@ for(const b of elevEl.children)b.addEventListener('pointerdown',e=>{e.preventDef
 let last=performance.now();
 function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;tick(dt);render();requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
-window.G={P,CAR,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
+window.G={P,CAR,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
 </script>
 </body>
 </html>
