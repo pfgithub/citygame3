@@ -18,6 +18,8 @@
   #hint{position:fixed;bottom:calc(22px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
     color:#eef0f3;font-size:14px;background:rgba(18,20,24,.62);padding:8px 16px;border-radius:999px;
     pointer-events:none;transition:opacity .4s;white-space:nowrap}
+  #fp{position:fixed;left:calc(12px + env(safe-area-inset-left));top:calc(10px + env(safe-area-inset-top));padding:6px 12px;border-radius:999px;
+    border:1px solid rgba(255,255,255,.35);background:rgba(18,20,24,.62);color:#eef0f3;font-size:13px}
   #elev{position:fixed;right:calc(16px + env(safe-area-inset-right));top:50%;transform:translateY(-50%);
     display:none;grid-template-columns:repeat(var(--cols,1),58px);gap:10px}
   #elev button{width:58px;height:58px;border-radius:50%;border:2px solid #cfd3d9;background:rgba(30,33,39,.85);
@@ -29,6 +31,7 @@
 <canvas id="c"></canvas>
 <svg id="ptr" viewBox="-1 -1 15 23"><path d="M0 0V17L4 13.4 6.9 20 9.6 18.8 6.7 12.4H12Z" fill="#fff" stroke="#111" stroke-width="1.3" stroke-linejoin="round"/></svg>
 <div id="loc"></div>
+<button id="fp"></button>
 <div id="hint"></div>
 <div id="elev"></div>
 <script src="three.min.js"></script>
@@ -354,6 +357,8 @@ const P={x:68,y:68.2,z:0,a:-Math.PI/2,lift:null,train:null,walk:0};
 let view=VIEW_OUT,indoor=0,bIn=0,time=0,pendingBtn=null;
 // Mouse / finger travel since the last tick, in CSS pixels. input.override is a scripted direction for tests.
 const input={dx:0,dy:0,override:null};
+const keys=new Set();
+let FP=false,pitch=0;                // first-person mode: P.a is the heading, pitch the look up/down
 const CAM={x:P.x,y:P.y};
 
 // ---------------------------------------------------------------- simulation
@@ -443,7 +448,12 @@ function tick(dt){
   // mouse moved across the screen, however fast that is.
   let wx,wy;
   if(input.override){const sp=SPEED_IN*view/VIEW_IN*dt;wx=input.override.x*sp;wy=input.override.y*sp}
-  else{const k=DPR*view/Math.min(W,H);wx=input.dx*k;wy=input.dy*k}
+  else if(FP){ // mouse looks, WASD walks, Shift runs
+    P.a+=input.dx*.0024;pitch=clamp(pitch-input.dy*.0024,-1.45,1.45);
+    let f=0,r=0;if(keys.has('KeyW'))f+=1;if(keys.has('KeyS'))f-=1;if(keys.has('KeyD'))r+=1;if(keys.has('KeyA'))r-=1;
+    const m=Math.hypot(f,r)||1,sp=(keys.has('ShiftLeft')||keys.has('ShiftRight')?8.5:4)*dt/m,c=Math.cos(P.a),sn=Math.sin(P.a);
+    wx=(f*c-r*sn)*sp;wy=(f*sn+r*c)*sp;
+  }else{const k=DPR*view/Math.min(W,H);wx=input.dx*k;wy=input.dy*k}
   input.dx=input.dy=0;
   const dist=Math.hypot(wx,wy);
   if(dist>1e-6){ // small steps so nothing is tunnelled through, whatever the speed
@@ -706,7 +716,7 @@ function art(x,y,w,h,ppm,fn){
   ppm=Math.min(ppm,4096/w,4096/h);
   const c=document.createElement('canvas');c.width=Math.round(w*ppm);c.height=Math.round(h*ppm);
   const a={x,y,w,h,tex:new THREE.CanvasTexture(c)};a.tex.anisotropy=renderer.capabilities.getMaxAnisotropy();
-  a.mat=new THREE.MeshLambertMaterial({map:a.tex});
+  a.mat=new THREE.MeshLambertMaterial({map:a.tex,side:THREE.DoubleSide});   // seen from below, a floor is the ceiling
   a.uv=(wx,wy)=>[(wx-x)/w,1-(wy-y)/h];
   a.paint=()=>{const g=c.getContext('2d');g.setTransform(c.width/w,0,0,c.height/h,-x*c.width/w,-y*c.height/h);
     VB.x0=x;VB.y0=y;VB.x1=x+w;VB.y1=y+h;fn(g);a.tex.needsUpdate=true};
@@ -754,12 +764,16 @@ function furn3d(mb,f,y0){
   else if(c==='#bfe0ea')b=.12;else if(c==='#22252a')b=1;else if(f.turn)b=1;
   mb.box(f.x,f.y,f.w,f.h,y0+a,y0+b,shade(c),c);
 }
+const FPONLY=[];                      // meshes that only exist in first person: ceilings, roofs, wall tops
+const fpAdd=(parent,m)=>{m.visible=false;FPONLY.push(m);parent.add(m);return m};
+const CEIL={mat:new THREE.MeshLambertMaterial({color:'#3a3d44',side:THREE.DoubleSide}),uv:()=>[0,0]};
 const inR=(o,r)=>{const cx=o.r!==undefined?o.cx:o.x+o.w/2,cy=o.r!==undefined?o.cy:o.y+o.h/2;return cx>=r.x&&cx<=r.x+r.w&&cy>=r.y&&cy<=r.y+r.h};
 function levelParts(g,z,rect){
   const mb=new MB(),gl=new MB(),y0=Y(z)+.03;
-  for(const w of FL[z].walls)if(inR(w,rect))wall3d(mb,gl,w,y0);
-  for(const f of FL[z].furn)if(inR(f,rect))furn3d(mb,f,y0);
-  g.add(mb.mesh());if(gl.p.length)g.add(gl.mesh(GLASS));
+  const up=new MB();   // walls stop short of the ceiling so the top-down view stays readable; this closes the gap
+  for(const w of FL[z].walls)if(inR(w,rect)){wall3d(mb,gl,w,y0);up.box(w.x,w.y,w.w,w.h,y0+WALL_H,y0+LH-.04,WALLS)}
+  for(const f of FL[z].furn)if(inR(f,rect)){furn3d(mb,f,y0);if(f.opq||f.color==='#6f757d')up.box(f.x,f.y,f.w,f.h,y0+WALL_H,y0+LH-.04,shade(f.color))}
+  g.add(mb.mesh());if(gl.p.length)g.add(gl.mesh(GLASS));fpAdd(g,up.mesh());
   return mb;
 }
 // plain facade: a block with ribbon windows on every storey
@@ -781,6 +795,7 @@ function stairMeshes(s){
   // railing across the open end of the stairwell on the upper floor, so the drop is visibly fenced off
   {const[x,z,w,d]=s.rail;hi.box(x,z,w,d,Y(s.zh),Y(s.zh)+1.05,WALLS,WTOP)}
   s.low=lo.mesh();s.high=hi.mesh();scene.add(s.low,s.high);
+  if(s.owner){const up=new MB();for(const w of s.sides)up.box(w.x,w.y,w.w,w.h,Y(s.zh)+WALL_H,Y(s.zh)+LH-.04,WALLS);fpAdd(scene,up.mesh())}
 }
 
 // ---- outdoors (street level, both regions)
@@ -797,8 +812,8 @@ const CANOPIES=[];
     for(const d of b.details)mb.box(d.x,d.y,d.w,d.h,h,h+(d.c==='#c3c6ca'?1.1:.35),shade(d.c),d.c)}
   for(const t of OUT.trees){mb.cyl(t.x,t.y,.28,0,2.4+t.r*.4,'#5a4632','#5a4632',6)}
   const ico=new THREE.IcosahedronGeometry(1,1),cm={};
-  for(const t of OUT.trees){const m=new THREE.Mesh(ico,cm[t.c]||(cm[t.c]=new THREE.MeshLambertMaterial({color:t.c,flatShading:true})));
-    m.position.set(t.x,2.2+t.r*.8,t.y);OUTG.add(m);CANOPIES.push({t,m})}
+  for(const t of OUT.trees){const m=new THREE.Mesh(ico,new THREE.MeshLambertMaterial({color:t.c,flatShading:true}));
+    m.position.set(t.x,2.2+t.r*.8,t.y);m.scale.set(t.r,t.r*.8,t.r);OUTG.add(m);CANOPIES.push({t,m})}
   for(const l of OUT.lamps){mb.cyl(l.x,l.y,.07,0,5.4,'#33363c','#33363c',6);mb.box(l.x-.3,l.y-.3,.6,.6,5.4,5.6,'#d9cfa0','#fff2c0')}
   for(const c of OUT.cars){mb.box(c.x,c.y,c.w,c.h,.22,.85,shade(c.c,.85),c.c);mb.box(c.x+c.w*.24,c.y+.14,c.w*.48,c.h-.28,.85,1.38,'#26303b',c.c)}
   for(const b of OUT.benches){mb.box(b.x,b.y,b.w,b.h,0,.46,'#5f452d','#7a5a3c')}
@@ -825,6 +840,9 @@ for(const b of BUILDINGS){
   ext.box(b.door.x-1.6,r.y+r.h,3.2,1.6,2.9,3.05,shade(b.awning),b.awning);        // awning over the entrance
   ext.box(b.door.x-1,r.y+r.h,2,.08,0,2.4,'#1b1d21');
   b.ext=ext.mesh();scene.add(b.ext);
+  {const rf=new MB();rf.box(r.x,r.y,r.w,r.h,Y(b.top+1),Y(b.top+1)+.4,shade(b.roof.color,.92),b.roof.color);
+    for(const d of b.roof.details)rf.box(d.x,d.y,d.w,d.h,h,h+(d.c==='#c3c6ca'?1.1:.35),shade(d.c),d.c);
+    rf.box(b.door.x-1.6,r.y+r.h,3.2,1.6,2.9,3.05,shade(b.awning),b.awning);fpAdd(scene,rf.mesh())}
   b.levels=[];
   for(let z=0;z<=b.top;z++){
     const g=new THREE.Group(),holes=[];
@@ -841,10 +859,13 @@ for(const l of LIFTS){
   const mb=new MB();mb.box(l.x,l.y,l.w,l.h+.2,-.02,.04,'#c9cdd3');
   mb.box(l.x+.06,l.y+.06,l.w-.12,.08,.04,1,'#8f959d');mb.box(l.x+.06,l.y+.2,.08,l.h-.3,.04,1,'#8f959d');mb.box(l.x+l.w-.14,l.y+.2,.08,l.h-.3,.04,1,'#8f959d');
   l.car=mb.mesh();scene.add(l.car);
+  {const up=new MB();for(let z=l.zmin;z<=l.zmax;z++)up.box(l.dr.x,l.dr.y,l.dr.w,l.dr.h,Y(z)+2.23,Y(z)+LH-.01,WALLS);fpAdd(scene,up.mesh())}
   l.doors=[];for(let z=l.zmin;z<=l.zmax;z++){const g=l.owner.levels[z];l.doors.push([dynBox(g,'#aeb4bc'),dynBox(g,'#aeb4bc')])}
 }
 // flat doors
-{const b=BUILDINGS[1];
+{const b=BUILDINGS[1],up=new MB();
+  for(const d of FLATDOORS)up.box(d.x,d.y,d.w,d.h,Y(d.z)+2.13,Y(d.z)+LH-.01,WALLS);
+  fpAdd(scene,up.mesh());
   for(const d of FLATDOORS){const g=b.levels[d.z];
     if(d.mine)d.mesh=dynBox(g,'#3f9a63');
     else{const mb=new MB();mb.box(d.x,d.y+.04,d.w,d.h-.08,Y(d.z)+.03,Y(d.z)+2.1,'#6b4a32','#54392a');g.add(mb.mesh())}}
@@ -862,15 +883,18 @@ for(const st of STATIONS){
   levelParts(st.g2,-2,zone);
   const gl=new MB();for(const r of st.screens)gl.box(r.x,r.y+.04,r.w,r.h-.08,Y(-2),Y(-2)+2.1,'#96cde6','#96cde6');
   st.g2.add(gl.mesh(GLASS));
+  fpAdd(scene,slab({x:dx+CONC.x-.3,y:CONC.y-.3,w:CONC.w+.6,h:CONC.h+.6},[],Y(0)-.06,CEIL));
+  fpAdd(scene,slab({x:dx+96,y:103.3,w:98,h:20.4},[{x:dx+128,y:112,w:10,h:3}],Y(-1)-.06,CEIL));
   st.doors=[0,1].map(()=>TDOORS.map(()=>[dynBox(st.g2,'#eef0f2'),dynBox(st.g2,'#eef0f2')]));
 }
 { // running tunnels between and beyond the stations
   const a=art(280,103.3,7,3.5,32,drawPlatform);a.tex.wrapS=THREE.RepeatWrapping;
   const mb=new MB(),glow=new MB(),y=Y(-2),gaps=[[-150,96],[194,596],[694,900]];
   for(const[x0,x1]of gaps)for(const ty of[103.3,120.2]){
-    const m=slab({x:x0,y:ty,w:x1-x0,h:3.5},[],y,{mat:a.mat,uv:(wx,wy)=>[wx/7,1-(wy-ty)/3.5]});TUNNEL.add(m)}
-  for(const[x0,x1]of gaps)mb.box(x0,106.8,x1-x0,13.4,y,y+3.4,'#2a2c31','#0f1013');
-  mb.box(-150,101.3,1050,2,y,y+3.4,'#2a2c31','#0f1013');mb.box(-150,123.7,1050,2,y,y+3.4,'#2a2c31','#0f1013');
+    const m=slab({x:x0,y:ty,w:x1-x0,h:3.5},[],y,{mat:a.mat,uv:(wx,wy)=>[wx/7,1-(wy-ty)/3.5]});TUNNEL.add(m);
+    fpAdd(TUNNEL,slab({x:x0,y:ty,w:x1-x0,h:3.5},[],Y(-1)-.06,CEIL))}
+  for(const[x0,x1]of gaps)mb.box(x0,106.8,x1-x0,13.4,y,y+LH,'#2a2c31','#0f1013');
+  mb.box(-150,101.3,1050,2,y,y+LH,'#2a2c31','#0f1013');mb.box(-150,123.7,1050,2,y,y+LH,'#2a2c31','#0f1013');
   for(let x=-150;x<900;x+=10){glow.box(x,103.3,.7,.1,y+2,y+2.25,'#ffe9a8');glow.box(x,123.6,.7,.1,y+2,y+2.25,'#ffe9a8')}
   TUNNEL.add(mb.mesh(),glow.mesh(GLOW));
 }
@@ -883,6 +907,7 @@ for(const tr of TRAINS){
     mb.box(cx+.8,tr.track?p.fs-.45:p.fs+.15,cl-1.6,.45,y,y+.45,shade(tr.col),tr.col);
     for(const[a,b]of[[.8,3.9],[5.8,9],[10.9,14],[15.9,17.7]])mb.box(cx+a,tr.track?p.ps+.15:p.ps-.45,b-a,.45,y,y+.45,shade(tr.col),tr.col)}
   g.add(mb.mesh());tr.g=g;tr.ps=p.ps;scene.add(g);
+  {const rf=new MB();rf.box(0,p.y,TL,TW,y+2.1,y+2.2,tr.col);fpAdd(g,rf.mesh())}
   tr.doors=TDOORS.map(()=>[dynBox(g,'#e9ecef'),dynBox(g,'#e9ecef')]);
 }
 
@@ -914,6 +939,7 @@ function views(){
   return[{k:0,b:null},{k:0,b:mine},mine.bIn];
 }
 let signT=0;
+const SKY=new THREE.Color('#a9cfee'),NIGHT=new THREE.Color('#14161a');
 function render(){
   // moving parts
   for(const l of LIFTS){l.car.position.y=Y(l.z)+.03;
@@ -925,8 +951,23 @@ function render(){
   STATIONS.forEach((st,si)=>{for(let k=0;k<2;k++){const hw=TDW/2*(1-dockedDoor(si,k)*.92),y=Y(-2);
     st.doors[k].forEach((pr,i)=>{const x=st.dx+DOCK+TDOORS[i];setBox(pr[0],x,EDGEY[k]+.03,hw,.14,y,y+2.1);setBox(pr[1],x+TDW-hw,EDGEY[k]+.03,hw,.14,y,y+2.1)})}});
   if(P.z<-1.5&&time-signT>1){signT=time;for(const st of STATIONS)st.art.paint()}     // platform countdown signs
-  if(P.z>-.9)for(const c of CANOPIES){const t=c.t,s=lerp(.3,1,clamp((Math.hypot(P.x-t.x,P.y-t.y)-t.r+.4)/1.6));   // canopies shrink out of the way
-    c.m.scale.set(t.r*s,t.r*.8*s,t.r*s)}
+  if(P.z>-.9)for(const c of CANOPIES){const t=c.t,a=FP?1:lerp(.22,1,clamp((Math.hypot(P.x-t.x,P.y-t.y)-t.r+.4)/1.6));   // canopies fade when the pointer is under them
+    c.m.material.opacity=a;c.m.material.transparent=a<.995;c.m.material.depthWrite=a>=.995}
+  for(const m of FPONLY)m.visible=FP;
+  scene.background=FP&&P.z>-.5?SKY:NIGHT;
+  if(FP){ // everything exists at once, seen from eye height
+    OUTG.visible=TUNNEL.visible=true;
+    for(const b of BUILDINGS){b.ext.visible=false;for(const g of b.levels)g.visible=true}
+    for(const s of STAIRS)s.low.visible=s.high.visible=true;
+    for(const l of LIFTS)l.car.visible=true;
+    for(const st of STATIONS)st.g1.visible=st.g2.visible=true;
+    for(const tr of TRAINS)tr.g.visible=true;
+    const ey=Y(P.z)+1.65,cp=Math.cos(pitch);
+    camera.aspect=W/H;camera.fov=72;camera.near=.08;camera.far=700;camera.up.set(0,1,0);
+    camera.position.set(P.x,ey,P.y);camera.lookAt(P.x+Math.cos(P.a)*cp,ey+Math.sin(pitch),P.y+Math.sin(P.a)*cp);camera.updateProjectionMatrix();
+    renderer.setRenderTarget(null);renderer.render(scene,camera);updateHud();return;
+  }
+  camera.near=1;
   // camera: straight down, high enough that `view` metres span the short side of the screen
   const hgt=view/2/Math.tan(HALF_FOV),ty=Y(P.z);
   camera.aspect=W/H;camera.fov=2*Math.atan(Math.tan(HALF_FOV)*H/Math.min(W,H))*180/Math.PI;
@@ -981,10 +1022,16 @@ function updateHud(){
 // Desktop: click to lock the pointer, then the mouse drives. Touch: drag like a trackpad.
 const hintEl=document.getElementById('hint'),TOUCH=matchMedia('(pointer:coarse)').matches;
 const locked=()=>document.pointerLockElement===cv;
-function showHint(){hintEl.textContent=TOUCH?'Drag to move the pointer':'Click to take the mouse  ·  Esc to let go  ·  in a lift: scroll or 1–0';hintEl.style.opacity=locked()?0:1}
-showHint();document.addEventListener('pointerlockchange',showHint);
+function showHint(){hintEl.textContent=TOUCH?(FP?'Drag to look around':'Drag to move the pointer'):FP?'Click to look  ·  WASD to walk, Shift to run  ·  Esc to let go':'Click to take the mouse  ·  Esc to let go  ·  in a lift: scroll or 1–0';hintEl.style.opacity=locked()?0:1}
+document.addEventListener('pointerlockchange',showHint);
 const liftStep=d=>{const l=P.lift;if(l)pendingBtn=clamp((pendingBtn??l.target??Math.round(l.z))+d,l.zmin,l.zmax)};
+const fpEl=document.getElementById('fp');
+function setFP(on){FP=on;pitch=0;fpEl.textContent=FP?'Top-down view (F)':'First person (F)';ptrEl.style.display=FP?'none':'';showHint()}
+fpEl.addEventListener('click',()=>{setFP(!FP);fpEl.blur()});
+setFP(false);
+addEventListener('keyup',e=>keys.delete(e.code));addEventListener('blur',()=>keys.clear());
 addEventListener('keydown',e=>{
+  keys.add(e.code);if(e.code==='KeyF'&&!e.repeat)setFP(!FP);
   if(/^Digit\d$/.test(e.code)&&P.lift)pendingBtn=(+e.code.slice(5)+9)%10;   // 1..9, and 0 for the tenth floor
   if(e.code==='ArrowUp'||e.code==='ArrowDown'){liftStep(e.code==='ArrowUp'?1:-1);e.preventDefault()}});
 addEventListener('wheel',e=>{liftStep(e.deltaY<0?1:-1);e.preventDefault()},{passive:false});
@@ -1006,7 +1053,7 @@ elevEl.addEventListener('pointerdown',e=>{e.preventDefault();const f=e.target.da
 let last=performance.now();
 function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;tick(dt);render();requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
-window.G={P,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
+window.G={P,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
 </script>
 </body>
 </html>
