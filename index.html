@@ -299,7 +299,6 @@ const PATHS=[[120,66,120,50],[120,50,150,33],[172,66,172,50],[172,50,150,33],[10
   [150,33,150,0],[150,33,168,24],[120,50,112,14],[112,14,150,8],[150,8,186,34],[186,34,172,50]];
 const FOUNT={x:150,y:33,r:2.6}, POND={x:181,y:17,rx:11,ry:7};
 circ(FOUNT.x,FOUNT.y,FOUNT.r);
-for(const dx of[-5.5,0,5.5])circ(POND.x+dx,POND.y,dx?5.2:6.6);
 function fenceSeg(x1,y1,x2,y2){OUT.fence.push([x1,y1,x2,y2]);
   box(Math.min(x1,x2)-.08,Math.min(y1,y2)-.08,Math.abs(x2-x1)+.16,Math.abs(y2-y1)+.16)}
 fenceSeg(104,66,118,66);fenceSeg(122,66,170,66);fenceSeg(174,66,200,66);
@@ -427,6 +426,16 @@ fenceSeg(1052,74,1104,74);fenceSeg(1119,74,1168,74);
 for(const[x,y]of[[1060,88],[1160,88],[1060,100],[1160,100]])lamp(x,y);
 circ(1108.6,90.8,.12);
 
+// ---------------------------------------------------------------- surfaces
+// Two kinds of ground change how you move: the ice rink on the harbour square (you keep your
+// momentum and can only nudge it) and the park pond (shallow enough to wade, slowly).
+const RINK={x:566.5,y:89.5,w:29,h:17},RINKB=[];
+for(const[x,y,w,h]of[[566.3,89.3,11.7,.2],[584,89.3,11.7,.2],[566.3,106.5,29.4,.2],[566.3,89.3,.2,17.4],[595.5,89.3,.2,17.4]]){RINKB.push({x,y,w,h});box(x,y,w,h)}
+function surfaceAt(x,y,z){
+  if(z!==0)return null;if(inRect(x,y,RINK))return'ice';
+  const dx=(x-POND.x)/POND.rx,dy=(y-POND.y)/POND.ry;return dx*dx+dy*dy<1?'water':null;
+}
+
 // ---------------------------------------------------------------- harbour road
 // The avenue runs on east from the park to the harbour square: 360 m of street with a
 // building line on both sides and three dead-end alleys.
@@ -492,7 +501,7 @@ function seatBehind(){
 }
 
 // ---------------------------------------------------------------- state
-const P={boat:null,ticket:false,paid:false,x:68,y:68.2,z:0,a:-Math.PI/2,lift:null,train:null,walk:0};
+const P={vx:0,vy:0,boat:null,ticket:false,paid:false,x:68,y:68.2,z:0,a:-Math.PI/2,lift:null,train:null,walk:0};
 let view=VIEW_OUT,indoor=0,bIn=0,time=0,pendingBtn=null;
 // The player's position is kept across page loads. Only places that will still make sense
 // later are saved: not the inside of a lift or a train, which will have moved on.
@@ -1040,6 +1049,13 @@ function tick(dt){
     if(b.docked&&P.x<623.3)P.boat=null;                 // back over the side onto the pier
   }
   updateBoat(dt);
+  // Surfaces. Ordinarily the pointer goes exactly where the mouse says. On ice the mouse only
+  // pushes: speed builds, and carries on when you stop. In water you wade: slow, and sluggish.
+  const sf=P.boat||P.sit||P.lift?null:surfaceAt(P.x,P.y,P.z),px0=P.x,py0=P.y;
+  if(sf==='ice'){P.vx+=wx*.9;P.vy+=wy*.9;const f=Math.exp(-dt*.45),sp=Math.hypot(P.vx,P.vy),k=sp>30?30/sp:1;P.vx*=f*k;P.vy*=f*k;wx=P.vx*dt;wy=P.vy*dt}
+  else if(sf==='water'){let tx=wx/dt*.4,ty=wy/dt*.4;const sp=Math.hypot(tx,ty);if(sp>4){tx*=4/sp;ty*=4/sp}
+    const k=Math.min(1,dt*4);P.vx+=(tx-P.vx)*k;P.vy+=(ty-P.vy)*k;wx=P.vx*dt;wy=P.vy*dt}
+  else{P.vx=wx/dt;P.vy=wy/dt;const sp=Math.hypot(P.vx,P.vy);if(sp>25){P.vx*=25/sp;P.vy*=25/sp}}   // so you arrive on the ice with the speed you had
   const dist=Math.hypot(wx,wy);
   if(dist>1e-6){ // small steps so nothing is tunnelled through, whatever the speed
     const n=Math.min(6000,Math.ceil(dist/.08));
@@ -1049,6 +1065,7 @@ function tick(dt){
       if(Math.abs(P.x-bx)+Math.abs(P.y-by)<1e-5)break;   // pinned against something: the rest of the flick goes nowhere
     }
   }
+  if(sf){P.vx=(P.x-px0)/dt;P.vy=(P.y-py0)/dt}          // whatever a wall or the boards stopped is gone
   if(!FP&&Math.hypot(hx,hy)>.01)P.a+=angDiff(Math.atan2(hy,hx),P.a)*Math.min(1,Math.hypot(hx,hy)*4);   // the pointer faces the way it last moved
   gather(P.x-1.5,P.y-1.5,P.x+1.5,P.y+1.5);
   if(!FP)P.sit=null;
@@ -1168,6 +1185,14 @@ function drawHarborGround(g){
   g.strokeStyle='rgba(0,0,0,.07)';g.lineWidth=.06;g.beginPath();
   for(let x=564;x<=676;x+=2){g.moveTo(x,72);g.lineTo(x,108)}for(let y=72;y<=108;y+=2){g.moveTo(564,y);g.lineTo(676,y)}g.stroke();
   g.fillStyle='#a39e92';g.fillRect(x0,60,w,12);
+  // ice rink
+  {const r=RINK;g.fillStyle='#e8f3f8';g.fillRect(r.x,r.y,r.w,r.h);
+    g.strokeStyle='rgba(120,170,200,.35)';g.lineWidth=.1;g.strokeRect(r.x+1.5,r.y+1.5,r.w-3,r.h-3);disc(g,r.x+r.w/2,r.y+r.h/2,3);g.stroke();
+    g.beginPath();g.moveTo(r.x+r.w/2,r.y);g.lineTo(r.x+r.w/2,r.y+r.h);g.stroke();
+    g.save();g.beginPath();g.rect(r.x,r.y,r.w,r.h);g.clip();
+    g.strokeStyle='rgba(255,255,255,.9)';g.lineWidth=.04;const q=mulberry32(4);g.beginPath();
+    for(let i=0;i<70;i++){const x=r.x+q()*r.w,y=r.y+q()*r.h,a=q()*6.3,l=1+q()*3;g.moveTo(x,y);g.quadraticCurveTo(x+Math.cos(a)*l,y+Math.sin(a)*l,x+Math.cos(a+.8)*l*1.6,y+Math.sin(a+.8)*l*1.6)}g.stroke();g.restore();
+    text(g,'ICE RINK',r.x+r.w/2,r.y-1.2,.6,'rgba(40,44,52,.6)')}
   // the avenue arrives from the west and ends in a turning place
   g.fillStyle=C.walk;g.fillRect(x0,66,566-x0,20);g.fillStyle=C.road;g.fillRect(x0,70,564-x0,12);disc(g,564,76,6);g.fill();
   g.strokeStyle='rgba(255,255,255,.7)';g.lineWidth=.14;disc(g,564,76,2.2);g.stroke();
@@ -1444,6 +1469,7 @@ const CANOPIES=[];
   for(const f of OUT.fence){const L=Math.hypot(f[2]-f[0],f[3]-f[1]),n=Math.round(L/2.5),x=Math.min(f[0],f[2]),y=Math.min(f[1],f[3]);
     for(let k=0;k<=n;k++)mb.box(lerp(f[0],f[2],k/n)-.06,lerp(f[1],f[3],k/n)-.06,.12,.12,0,1.15,'#2f3a33');
     for(const ry of[.5,1.02])mb.box(x-.03,y-.03,Math.abs(f[2]-f[0])+.06,Math.abs(f[3]-f[1])+.06,ry,ry+.06,'#2f3a33')}
+  for(const r of RINKB)mb.box(r.x,r.y,r.w,r.h,0,.95,'#f4f1ea','#c94f3d');
   for(const x of BOLLARDS)mb.cyl(x,61,.22,0,.7,'#2c2f35','#3a3d44',8);
   mb.cyl(FOUNT.x,FOUNT.y,FOUNT.r,0,.5,'#a39d8e','#b9b3a4',24);mb.cyl(FOUNT.x,FOUNT.y,FOUNT.r-.35,0,.52,'#6fb3d6','#6fb3d6',24);
   mb.cyl(FOUNT.x,FOUNT.y,.35,0,1.3,'#cfcabd','#e5e1d6',10);
@@ -1791,6 +1817,8 @@ function locName(){
   if(P.z<-.01)return sn+' Station entrance';
   if(ri===2)return'Arena'+(A.cur?' · '+A.cur.name:'');
   if(P.boat)return'Harbor  ·  aboard the boat';
+  if(surfaceAt(P.x,P.y,P.z)==='ice')return'Ice rink';
+  if(surfaceAt(P.x,P.y,P.z)==='water')return'Park pond  ·  wading';
   if(P.x>=562&&P.x<900)return P.y<60?'Harbor Pier':P.y<72?'Harbor Quay':'Harbor Square';
   if(inRect(P.x,P.y,OFFICE))return'Office · '+(P.z%1?'Stairs':'Floor '+(Math.round(P.z)+1));
   if(inRect(P.x,P.y,TOWER)){
