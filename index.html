@@ -418,7 +418,7 @@ const CAM={x:P.x,y:P.y};
 
 // ---------------------------------------------------------------- arena combat
 // Top-down (mouse) mode only. Walking onto a pad takes that weapon.
-const A={hp:100,kx:0,ky:0,msg:0,ease:0,cdw:0,sw:null,orbs:[],rclick:false,cur:null,down:false,click:false,kills:0,bow:null,ball:null,fuel:1,lastDrop:null,puddles:[],arrows:[],missile:null,blast:null,lasso:null,tip:null,creatures:[]};
+const A={shapes:[],hp:100,kx:0,ky:0,msg:0,ease:0,cdw:0,sw:null,orbs:[],rclick:false,cur:null,down:false,click:false,kills:0,bow:null,ball:null,fuel:1,lastDrop:null,puddles:[],arrows:[],missile:null,blast:null,lasso:null,tip:null,creatures:[]};
 const crng=mulberry32(99);
 const ROPE=50;                       // metres of lasso
 const angDiff=(a,b)=>Math.atan2(Math.sin(a-b),Math.cos(a-b));
@@ -439,6 +439,29 @@ function inPoly(x,y,pts){let ins=false;
   for(let i=0,j=pts.length-1;i<pts.length;j=i++){const a=pts[i],b=pts[j];
     if((a.y>y)!==(b.y>y)&&x<(b.x-a.x)*(y-a.y)/(b.y-a.y)+a.x)ins=!ins}
   return ins}
+// Where two rope segments cross, or null.
+function segX(a,b,c,d){
+  const rx=b.x-a.x,ry=b.y-a.y,sx=d.x-c.x,sy=d.y-c.y,den=rx*sy-ry*sx;if(Math.abs(den)<1e-9)return null;
+  const t=((c.x-a.x)*sy-(c.y-a.y)*sx)/den,u=((c.x-a.x)*ry-(c.y-a.y)*rx)/den;
+  return t>1e-6&&t<=1&&u>=0&&u<=1?{x:a.x+rx*t,y:a.y+ry*t}:null;
+}
+// The closed loops in a rope path. Walks the path; each time it crosses itself the loop
+// just completed is cut off and the walk carries on from the crossing.
+function ropeLoops(pts){
+  // an end that stops just short of the rope still counts as closing the loop
+  const e=pts[pts.length-1];let near=-1,nd=1.6;
+  for(let i=0;i<pts.length-8;i++){const d=Math.hypot(pts[i].x-e.x,pts[i].y-e.y);if(d<nd){nd=d;near=i}}
+  if(near>=0)pts=[...pts,pts[near],pts[near+1]||pts[near]];
+  const loops=[],w=[pts[0]];
+  for(let k=1;k<pts.length;k++){const q=pts[k];
+    for(let again=true;again;){again=false;const a=w[w.length-1];
+      for(let i=w.length-3;i>=0;i--){const X=segX(a,q,w[i],w[i+1]);
+        if(X){const lp=[X,...w.slice(i+1)];let ar=0;for(let m=0;m<lp.length;m++){const u=lp[m],v=lp[(m+1)%lp.length];ar+=u.x*v.y-v.x*u.y}
+          if(Math.abs(ar)/2>1)loops.push(lp);
+          w.length=i+1;w.push(X);again=true;break}}}
+    w.push(q)}
+  return loops;
+}
 function equip(w){A.cur=w;A.bow=A.missile=A.lasso=A.tip=null;A.sw=w&&w.id==='sword'?{a:P.a,w:0}:null;A.ball=w&&w.id==='ball'?{x:P.x,y:P.y,px:P.x,py:P.y}:null}
 const inArena=()=>!FP&&P.z===0&&regionAt(P.x)===2;
 // While the bow is drawn or a missile is flying, the mouse drives that instead of the player.
@@ -481,20 +504,17 @@ function updateArena(dt,mx,my){
   }else if(id==='missile'){
     if(click){if(A.missile)explode();else A.missile={x:P.x,y:P.y,a:P.a,want:P.a,life:5}}
   }else if(id==='lasso'){
-    if(click&&!A.lasso)A.lasso={pts:[{x:P.x,y:P.y}],len:0,flash:0};
+    if(click&&!A.lasso)A.lasso={pts:[{x:P.x,y:P.y}],len:0};
     const l=A.lasso;
-    if(l&&!l.flash){
+    if(l){
       const q=l.pts[l.pts.length-1],d=Math.hypot(P.x-q.x,P.y-q.y);
       if(d>.4){l.pts.push({x:P.x,y:P.y});l.len+=d}
       while(l.len>ROPE&&l.pts.length>2){ // out of rope: the far end gets dragged along
         const a=l.pts[0],b=l.pts[1],sg=Math.hypot(b.x-a.x,b.y-a.y),ex=l.len-ROPE;
         if(sg<=ex){l.pts.shift();l.len-=sg}else{a.x+=(b.x-a.x)*ex/sg;a.y+=(b.y-a.y)*ex/sg;l.len-=ex}}
-      if(!A.down){ // let go: every full turn of rope round a creature tightens on it
-        const pts=[...l.pts,{x:P.x,y:P.y}];
-        for(const c of live){let th=0;
-          for(let i=1;i<pts.length;i++)th+=angDiff(Math.atan2(pts[i].y-c.y,pts[i].x-c.x),Math.atan2(pts[i-1].y-c.y,pts[i-1].x-c.x));
-          const n=Math.floor(Math.abs(th)/6.2832+.06);if(n>0)hurt(c,90*n)}
-        l.flash=.4}
+      if(!A.down){ // let go: the rope vanishes and every loop it closed hits what is inside (two loops round one creature hit twice)
+        for(const lp of ropeLoops([...l.pts,{x:P.x,y:P.y}])){A.shapes.push({pts:lp,t:0});for(const c of live)if(inPoly(c.x,c.y,lp))hurt(c,90)}
+        A.lasso=null}
     }
   }else if(id==='sword'){
     // The blade keeps its angle. Holding the button plants your feet and lets the mouse push it
@@ -522,7 +542,7 @@ function updateArena(dt,mx,my){
     for(const c of live)if(!o.dead&&segDist(c.x,c.y,o.x,o.y,nx,ny)<c.r+.3){hurt(c,40,o.vx*.6,o.vy*.6);o.dead=1}
     o.x=nx;o.y=ny;if(o.fly<=0||nx<REGIONS[2].x0||nx>REGIONS[2].x1||ny<REGIONS[2].y0||ny>REGIONS[2].y1)o.dead=1}
   A.orbs=A.orbs.filter(o=>!o.dead);
-  if(A.lasso&&A.lasso.flash){A.lasso.flash-=dt;if(A.lasso.flash<=0)A.lasso=null}
+  for(const sh of A.shapes)sh.t+=dt;
 
   { // missile: slow, constant speed, turned by the mouse
     const m=A.missile;
@@ -1190,7 +1210,14 @@ function arenaSync(){
   AV.pud.forEach((m,i)=>{const p=A.puddles[i];m.visible=!!p;if(!p)return;const on=p.t>1;m.material=on?AV.flame:AV.fuel;
     const h=on?.5+.45*Math.sin(time*17+i*2.1):.04,r=on?1.25:Math.min(1.1,.4+p.t);m.position.set(p.x,h/2+.02,p.y);m.scale.set(r,h,r)});
   const l=A.lasso,pts=l?[...l.pts,{x:P.x,y:P.y}]:[];
-  AV.rope.forEach((m,i)=>{if(i<pts.length-1){stick(m,pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y,.25,l.flash?.3:.1);m.material.emissive.setScalar(l.flash?1:0)}else m.visible=false});
+  AV.rope.forEach((m,i)=>{if(i<pts.length-1)stick(m,pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y,.25,.1);else m.visible=false});
+  // the area a released lasso struck: a filled patch that fades away
+  A.shapes=A.shapes.filter(sh=>{
+    if(sh.t>.8){if(sh.m){ARG.remove(sh.m);sh.m.geometry.dispose();sh.m.material.dispose()}return false}
+    if(!sh.m){const g=new THREE.ShapeGeometry(new THREE.Shape(sh.pts.map(q=>new THREE.Vector2(q.x,q.y))));
+      sh.m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:'#fff3c4',transparent:true,depthWrite:false,side:THREE.DoubleSide}));
+      sh.m.rotation.x=Math.PI/2;sh.m.position.y=.12;ARG.add(sh.m)}
+    sh.m.material.opacity=.6*(1-sh.t/.8);return true});
   for(const m of AV.line)m.visible=false;AV.dot.visible=AV.ball.visible=false;
   const id=A.cur&&A.cur.id;
   if(id==='bow'&&A.bow){const b=A.bow;
