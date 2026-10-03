@@ -535,6 +535,54 @@ function updateTraffic(dt){
   }
 }
 
+// ---------------------------------------------------------------- pedestrians
+// People walk a small network of sidewalk and park-path points. `x` marks a way out of the
+// district (they leave and someone else arrives), and crossings wait for the lights.
+const PN={wn:[2,68,'x'],t:[34,68],o:[68,68],nw:[88,68],ne:[102,68],g1:[120,68],g2:[172,68],en:[198,68,'x'],
+  ws:[2,84,'x'],sw:[88,84],se:[102,84],pl:[111.5,84],es:[198,84,'x'],nn:[88,2,'x'],ne2:[102,2,'x'],wg:[102,32],ss:[88,158,'x'],ss2:[102,158,'x'],
+  td:[34,66.3,'x'],od:[68,66.3,'x'],sub:[111.5,91,'x'],p1:[120,50],p2:[172,50],fw:[143.5,36.5],fe:[156.5,36.5],fn:[150,26.5],pn:[150,6]};
+const PE=[['wn','t'],['t','o'],['o','nw'],['nw','ne',1],['ne','g1'],['g1','g2'],['g2','en'],['ws','sw'],['sw','se',1],['se','pl'],['pl','es'],
+  ['nn','nw'],['nw','sw',0],['sw','ss'],['ne2','wg'],['wg','ne'],['ne','se',0],['se','ss2'],['t','td'],['o','od'],['pl','sub'],
+  ['g1','p1'],['p1','fw'],['g2','p2'],['p2','fe'],['fw','fe'],['fw','fn'],['fe','fn'],['fn','pn'],['wg','fw']];   // third item: the signal group whose traffic the crossing cuts across
+const PADJ={};for(const k in PN)PADJ[k]=[];
+for(const[a,b,x]of PE){const d=Math.hypot(PN[a][0]-PN[b][0],PN[a][1]-PN[b][1]);PADJ[a].push({to:b,d,x});PADJ[b].push({to:a,d,x})}
+const PEXITS=Object.keys(PN).filter(k=>PN[k][2]),PSEATS=OUT.benches.filter(b=>b.x<300).map(b=>({x:b.x+b.w/2,y:b.y+b.h/2,near:Object.keys(PN).reduce((m,k)=>Math.hypot(PN[k][0]-b.x,PN[k][1]-b.y)<Math.hypot(PN[m][0]-b.x,PN[m][1]-b.y)?k:m),taken:false}));
+function pedPath(a,b){ // shortest way through the network
+  const dist={[a]:0},prev={},todo=new Set(Object.keys(PN));
+  while(todo.size){let u=null;for(const k of todo)if(dist[k]!==undefined&&(u===null||dist[k]<dist[u]))u=k;if(u===null||u===b)break;todo.delete(u);
+    for(const e of PADJ[u])if(dist[e.to]===undefined||dist[u]+e.d<dist[e.to]){dist[e.to]=dist[u]+e.d;prev[e.to]=u}}
+  const path=[b];while(path[0]!==a&&prev[path[0]])path.unshift(prev[path[0]]);return path;
+}
+// May someone step off the kerb now? Only while the traffic they would cross has a red with enough of it left.
+function mayCross(g,len){const t=time%SIG_T,need=(len-4)/1.4+1;   // (the road itself is 4 m narrower than kerb-node to kerb-node)
+ return g===0?(t>=14.3&&t+need<SIG_T+.3):(t>=25.3||t+need<14.7)}
+const prng=mulberry32(77),PEDS=[];
+function pedGoal(q){
+  if(prng()<.3){const free=PSEATS.filter(s=>!s.taken);if(free.length){const st=free[Math.floor(prng()*free.length)];st.taken=true;q.seat=st;q.path=pedPath(q.at,st.near);return}}
+  let d;do{d=PEXITS[Math.floor(prng()*PEXITS.length)]}while(d===q.at);q.seat=null;q.path=pedPath(q.at,d);
+}
+for(let i=0;i<28;i++){const at=Object.keys(PN)[Math.floor(prng()*Object.keys(PN).length)];
+  const q={at,x:PN[at][0],y:PN[at][1],sp:1.15+prng()*.5,off:(prng()-.5)*1.8,sit:0,on:false,a:0,col:['#3b5b8a','#8a3b3b','#3f7d5a','#6b6f78','#a0763a','#5a3f8a','#2f3138','#b8a070'][i%8]};
+  pedGoal(q);PEDS.push(q)}
+function updatePeds(dt){
+  for(const q of PEDS){
+    if(q.sit>0){q.sit-=dt;if(q.sit<=0){q.seat.taken=false;q.seat=null;pedGoal(q)}continue}
+    let tx,ty,edge=null;
+    if(q.path.length>1){const n=PN[q.path[1]],a=PN[q.at];edge=PADJ[q.at].find(e=>e.to===q.path[1]);
+      const dx=n[0]-a[0],dy=n[1]-a[1],L=Math.hypot(dx,dy)||1,o=edge.x===undefined?q.off:q.off*.6;tx=n[0]-dy/L*o;ty=n[1]+dx/L*o;   // keep to one side of the path
+      if(edge.x!==undefined&&!q.on){if(!mayCross(edge.x,L)){q.wait=true;continue}q.on=true}}
+    else if(q.seat){tx=q.seat.x;ty=q.seat.y}
+    else{ // reached a way out: someone new arrives somewhere else
+      q.at=PEXITS[Math.floor(prng()*PEXITS.length)];q.x=PN[q.at][0];q.y=PN[q.at][1];pedGoal(q);continue}
+    q.wait=false;
+    const dx=tx-q.x,dy=ty-q.y,d=Math.hypot(dx,dy),st=q.sp*(q.on?1.25:1)*dt;
+    if(d<=st+.05){q.x=tx;q.y=ty;
+      if(q.path.length>1){q.at=q.path[1];q.path.shift();q.on=false}else{q.sit=8+prng()*18}}
+    else{q.x+=dx/d*st;q.y+=dy/d*st;q.a=Math.atan2(dy,dx)}
+    if(P.z===0){const ex=q.x-P.x,ey=q.y-P.y,e=Math.hypot(ex,ey);if(e<.55&&e>1e-6){q.x+=ex/e*(.55-e);q.y+=ey/e*(.55-e)}}   // step round the player
+  }
+}
+
 // ---------------------------------------------------------------- boat
 // A small launch tied up at the harbour pier. Step aboard through the gap in the rail, hold
 // the mouse button to take the tiller: sideways steers, forward and back is the throttle.
@@ -933,7 +981,7 @@ function updateIndoor(dt){
 }
 function tick(dt){
   time+=dt;if(time-savedAt>1){savedAt=time;savePosition()}
-  updateTrains(dt);updateTraffic(dt);buildDyn();
+  updateTrains(dt);updatePeds(dt);updateTraffic(dt);buildDyn();
   // You are the mouse pointer: it moves across the world exactly as far as the
   // mouse moved across the screen, however fast that is.
   let wx,wy;
@@ -1598,6 +1646,11 @@ const SIGNALS=[[85.4,82.7,0],[104.6,69.3,0],[89.3,65.4,1],[100.7,86.6,1]].map(([
   const mb=new MB();mb.cyl(x,y,.08,0,4,'#33363c','#33363c',6);mb.box(x-.25,y-.25,.5,.5,3.9,5.1,'#1f2126');OUTG.add(mb.mesh());
   const lamp=new THREE.Mesh(UNIT,new THREE.MeshBasicMaterial());lamp.position.set(x,4.75,y);lamp.scale.set(.62,.9,.62);OUTG.add(lamp);return{lamp,g}});
 
+// pedestrians
+for(const q of PEDS){const mb=new MB();
+  mb.cyl(0,0,.2,0,.75,shade('#2b2f38',1),'#2b2f38',8);mb.cyl(0,0,.22,.75,1.42,shade(q.col),q.col,8);mb.cyl(0,0,.125,1.42,1.68,'#d9b48f','#4a3324',8);
+  q.g=mb.mesh();OUTG.add(q.g)}
+
 // the boat
 {const g=new THREE.Group(),mb=new MB();
   mb.box(-2.75,-1.2,5.5,2.4,.0,.04,'#8a6a4a');                                           // deck
@@ -1649,6 +1702,7 @@ function render(){
   for(const g of GATES){ // an unlocked arm swings away from you as you come through
     const d=Math.hypot(P.x-g.cx,P.y-g.cy),o=P.z===-1&&gatesOpen()?clamp((1.05-d)/.6):0;
     g.o+=(o-g.o)*.35;g.pivot.rotation.y=(P.x<g.cx?1:-1)*g.o*1.45}
+  for(const q of PEDS){const sat=q.sit>0;q.g.position.set(q.x,sat?-.3:Math.abs(Math.sin(time*7+q.sp*40))*(q.wait?0:.035),q.y);q.g.rotation.y=-q.a}
   for(const c of CARS){const r=carRect(c);c.g.position.set(r.x+r.w/2,0,r.y+r.h/2)}
   for(const sg of SIGNALS){const st=sigState(sg.g);sg.lamp.material.color.set(st==='g'?'#3fd06a':st==='y'?'#f0b63a':'#e5484d')}
   {const b=BOAT;b.g.position.set(b.x,Math.sin(time*1.3)*.02,b.y);b.g.rotation.y=-b.a;
@@ -1778,7 +1832,7 @@ elevEl.addEventListener('pointerdown',e=>{e.preventDefault();const f=e.target.da
 let last=performance.now();
 function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;tick(dt);render();requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
-window.G={P,A,CARS,BOAT,resetSave,MYDOOR,CHAIRS,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
+window.G={P,A,PEDS,CARS,BOAT,resetSave,MYDOOR,CHAIRS,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
 </script>
 </body>
 </html>
