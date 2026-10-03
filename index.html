@@ -164,7 +164,7 @@ for(const[x,y]of[[80.9,64.9],[55.1,64.9],[69.2,49.6]])fround(2,x,y,.42,'#4f8a55'
 // track, west on the north track, crossing over just before each terminus so that a
 // terminus only ever uses one platform edge.
 // Stations are identical boxes; everything is built at an x offset.
-const LINE_D=500,TL=74,TW=2.9,TRUN=9,TDWELL=6,DOCK=108,TDW=1.3;
+const LINE_D=500,TL=74,TW=2.9,TRUN=9,TDWELL=2,DOCK=108,TDW=1.3;
 const STATIONS=[{dx:0,name:'Central'},{dx:LINE_D,name:'Harbor'},{dx:2*LINE_D,name:'Arena'}];
 const TDOORS=[];for(let i=0;i<4;i++)for(const d of[4.2,9.3,14.3])TDOORS.push(i*18.5+d);   // door offsets along a train
 const TRACKY=[103.9,120.2];   // top edge of the train on the north / south track
@@ -392,9 +392,11 @@ const WEAPONS=[
   {id:'ball',name:'Spike ball',c:'#5b616a',help:'swing it by circling the mouse'},
   {id:'fire',name:'Fire',c:'#d2642f',help:'click or drag to pour fuel; it lights a moment later'},
   {id:'missile',name:'Missile',c:'#6f8f3c',help:'click to launch, steer with the mouse, click again to detonate'},
-  {id:'lasso',name:'Lasso',c:'#b08a4f',help:'click to pay out rope, circle enemies and come back to the start'},
-  {id:'sword',name:'Sword',c:'#9aa3ad',help:'it points the way you move: stab or slash'}];
-WEAPONS.forEach((w,i)=>{w.x=1076+i*14;w.y=82});
+  {id:'lasso',name:'Lasso',c:'#b08a4f',help:'hold click and run rings round enemies, release to snap it tight'},
+  {id:'sword',name:'Sword',c:'#9aa3ad',help:'hold click and circle the mouse to wind up a spin (you stand still); let go to carry it at that angle'},
+  {id:'stomp',name:'Stomp',c:'#c75d8a',help:'click to hit everything right around you'},
+  {id:'orbs',name:'Orbs',c:'#4aa3c7',help:'click to drop an orb (8 at most), right-click to fling the nearby ones away from you'}];
+WEAPONS.forEach((w,i)=>{w.x=1076+i*10;w.y=82});
 building(1012,-48,40,196);building(1168,-48,40,196);building(1052,-48,116,40);building(1052,106,116,40);
 fenceSeg(1052,74,1104,74);fenceSeg(1119,74,1168,74);
 for(const[x,y]of[[1060,88],[1160,88],[1060,100],[1160,100]])lamp(x,y);
@@ -416,8 +418,9 @@ const CAM={x:P.x,y:P.y};
 
 // ---------------------------------------------------------------- arena combat
 // Top-down (mouse) mode only. Walking onto a pad takes that weapon.
-const A={hp:100,kx:0,ky:0,msg:0,cur:null,down:false,click:false,kills:0,bow:null,ball:null,fuel:1,lastDrop:null,puddles:[],arrows:[],missile:null,blast:null,lasso:null,tip:null,creatures:[]};
+const A={hp:100,kx:0,ky:0,msg:0,ease:0,cdw:0,sw:null,orbs:[],rclick:false,cur:null,down:false,click:false,kills:0,bow:null,ball:null,fuel:1,lastDrop:null,puddles:[],arrows:[],missile:null,blast:null,lasso:null,tip:null,creatures:[]};
 const crng=mulberry32(99);
+const ROPE=50;                       // metres of lasso
 const angDiff=(a,b)=>Math.atan2(Math.sin(a-b),Math.cos(a-b));
 function spawn(c){
   const k=crng();
@@ -428,7 +431,7 @@ function spawn(c){
 for(let i=0;i<14;i++){const c={};spawn(c);A.creatures.push(c)}
 function hurt(c,d,kx=0,ky=0){
   if(c.dead)return;
-  const k=Math.hypot(kx,ky);if(k>9){kx*=9/k;ky*=9/k}
+  const k=Math.hypot(kx,ky);if(k>24){kx*=24/k;ky*=24/k}
   c.hp-=d;c.flash=.18;c.vx+=kx;c.vy+=ky;
   if(c.hp<=0){c.dead=2.5;A.kills++}
 }
@@ -436,17 +439,17 @@ function inPoly(x,y,pts){let ins=false;
   for(let i=0,j=pts.length-1;i<pts.length;j=i++){const a=pts[i],b=pts[j];
     if((a.y>y)!==(b.y>y)&&x<(b.x-a.x)*(y-a.y)/(b.y-a.y)+a.x)ins=!ins}
   return ins}
-function equip(w){A.cur=w;A.bow=A.missile=A.lasso=A.tip=null;A.ball=w&&w.id==='ball'?{x:P.x,y:P.y,px:P.x,py:P.y}:null}
+function equip(w){A.cur=w;A.bow=A.missile=A.lasso=A.tip=null;A.sw=w&&w.id==='sword'?{a:P.a,w:0}:null;A.ball=w&&w.id==='ball'?{x:P.x,y:P.y,px:P.x,py:P.y}:null}
 const inArena=()=>!FP&&P.z===0&&regionAt(P.x)===2;
 // While the bow is drawn or a missile is flying, the mouse drives that instead of the player.
-const mouseCaptured=()=>inArena()&&!!(A.bow||A.missile);
+const mouseCaptured=()=>inArena()&&!!(A.bow||A.missile||(A.sw&&A.down));
 function explode(){
-  const m=A.missile;A.missile=null;A.blast={x:m.x,y:m.y,t:0};
+  const m=A.missile;A.missile=null;A.blast={x:m.x,y:m.y,t:0,r:4.5};A.ease=1.3;   // the camera drifts back to the player
   for(const c of A.creatures){const dx=c.x-m.x,dy=c.y-m.y,d=Math.hypot(dx,dy);
-    if(d<4.5)hurt(c,95*(1-d/4.5*.6),dx/(d||1)*8,dy/(d||1)*8)}
+    if(d<4.5)hurt(c,95*(1-d/4.5*.6),dx/(d||1)*20,dy/(d||1)*20)}
 }
 function updateArena(dt,mx,my){
-  const click=A.click;A.click=false;
+  const click=A.click,rclick=A.rclick;A.click=A.rclick=false;
   if(regionAt(P.x)!==2)return;
   if(!inArena()){if(A.cur)equip(null);A.kx=A.ky=0;return}
   A.msg-=dt;A.hp=Math.min(100,A.hp+dt*3);
@@ -470,31 +473,55 @@ function updateArena(dt,mx,my){
     b.px=b.x;b.py=b.y;b.x+=sx;b.y+=sy;
     const dx=b.x-P.x,dy=b.y-P.y,d=Math.hypot(dx,dy);if(d>L){b.x=P.x+dx/d*L;b.y=P.y+dy/d*L}
     const vx=(b.x-b.px)/dt,vy=(b.y-b.py)/dt,sp=Math.hypot(vx,vy);
-    if(sp>3)for(const c of live)if(c.cd<=0&&segDist(c.x,c.y,b.px,b.py,b.x,b.y)<c.r+.45){hurt(c,Math.min(70,sp*2.4),vx*.3,vy*.3);c.cd=.35}
+    if(sp>3)for(const c of live)if(c.cd<=0&&segDist(c.x,c.y,b.px,b.py,b.x,b.y)<c.r+.45){hurt(c,Math.min(70,sp*2.4),vx*.7,vy*.7);c.cd=.35}
   }else if(id==='fire'){
     if(A.down&&A.fuel>=.07&&(click||!A.lastDrop||Math.hypot(P.x-A.lastDrop.x,P.y-A.lastDrop.y)>.75)){
       A.puddles.push({x:P.x,y:P.y,t:0});A.lastDrop={x:P.x,y:P.y};A.fuel-=.07;if(A.puddles.length>60)A.puddles.shift()}
     if(!A.down)A.fuel=Math.min(1,A.fuel+dt*.3);
   }else if(id==='missile'){
-    if(click){if(A.missile)explode();else A.missile={x:P.x,y:P.y,a:P.a,want:P.a,life:9}}
+    if(click){if(A.missile)explode();else A.missile={x:P.x,y:P.y,a:P.a,want:P.a,life:5}}
   }else if(id==='lasso'){
-    if(click)A.lasso=A.lasso?null:{pts:[{x:P.x,y:P.y}],len:0,flash:0};
+    if(click&&!A.lasso)A.lasso={pts:[{x:P.x,y:P.y}],len:0,flash:0};
     const l=A.lasso;
     if(l&&!l.flash){
       const q=l.pts[l.pts.length-1],d=Math.hypot(P.x-q.x,P.y-q.y);
       if(d>.4){l.pts.push({x:P.x,y:P.y});l.len+=d}
-      while(l.len>36&&l.pts.length>2){ // out of rope: the far end gets dragged along
-        const a=l.pts[0],b=l.pts[1],sg=Math.hypot(b.x-a.x,b.y-a.y),ex=l.len-36;
+      while(l.len>ROPE&&l.pts.length>2){ // out of rope: the far end gets dragged along
+        const a=l.pts[0],b=l.pts[1],sg=Math.hypot(b.x-a.x,b.y-a.y),ex=l.len-ROPE;
         if(sg<=ex){l.pts.shift();l.len-=sg}else{a.x+=(b.x-a.x)*ex/sg;a.y+=(b.y-a.y)*ex/sg;l.len-=ex}}
-      if(l.len>8&&Math.hypot(P.x-l.pts[0].x,P.y-l.pts[0].y)<1.3){for(const c of live)if(inPoly(c.x,c.y,l.pts))hurt(c,90);l.flash=.4}
+      if(!A.down){ // let go: every full turn of rope round a creature tightens on it
+        const pts=[...l.pts,{x:P.x,y:P.y}];
+        for(const c of live){let th=0;
+          for(let i=1;i<pts.length;i++)th+=angDiff(Math.atan2(pts[i].y-c.y,pts[i].x-c.x),Math.atan2(pts[i-1].y-c.y,pts[i-1].x-c.x));
+          const n=Math.floor(Math.abs(th)/6.2832+.06);if(n>0)hurt(c,90*n)}
+        l.flash=.4}
     }
   }else if(id==='sword'){
-    const c=Math.cos(P.a),sn=Math.sin(P.a),tx=P.x+c*2.1,ty=P.y+sn*2.1,bx=P.x+c*.35,by=P.y+sn*.35;
+    // The blade keeps its angle. Holding the button plants your feet and lets the mouse push it
+    // round: each push adds a little spin, so speed has to be built up.
+    const w=A.sw;
+    if(A.down){w.w=clamp(w.w+(-Math.sin(w.a)*mx+Math.cos(w.a)*my)*.3,-16,16)*Math.exp(-dt*.4)}else w.w=0;
+    w.a+=w.w*dt;
+    const c=Math.cos(w.a),sn=Math.sin(w.a),tx=P.x+c*2.1,ty=P.y+sn*2.1,bx=P.x+c*.35,by=P.y+sn*.35;
     if(A.tip){const vx=(tx-A.tip.x)/dt,vy=(ty-A.tip.y)/dt,sp=Math.hypot(vx,vy);
       if(sp>2.5)for(const cr of live)if(cr.cd<=0&&(segDist(cr.x,cr.y,bx,by,tx,ty)<cr.r+.12||segDist(cr.x,cr.y,A.tip.x,A.tip.y,tx,ty)<cr.r+.12)){
-        hurt(cr,Math.min(60,6+sp*1.7),vx*.25,vy*.25);cr.cd=.3}}
+        hurt(cr,Math.min(60,6+sp*1.7),vx*.6,vy*.6);cr.cd=.3}}
     A.tip={x:tx,y:ty};
+  }else if(id==='stomp'){
+    A.cdw-=dt;
+    if(click&&A.cdw<=0){A.cdw=.35;A.blast={x:P.x,y:P.y,t:0,r:2.2};
+      for(const c of live){const dx=c.x-P.x,dy=c.y-P.y,d=Math.hypot(dx,dy);if(d<2.4+c.r)hurt(c,45,dx/(d||1)*16,dy/(d||1)*16)}}
+  }else if(id==='orbs'){
+    if(click){A.orbs.push({x:P.x,y:P.y,vx:0,vy:0,fly:0});
+      const idle=A.orbs.filter(o=>!o.fly);if(idle.length>8)A.orbs.splice(A.orbs.indexOf(idle[0]),1)}
+    if(rclick)for(const o of A.orbs){const dx=o.x-P.x,dy=o.y-P.y,d=Math.hypot(dx,dy);
+      if(!o.fly&&d<7){const c=d>.05?dx/d:Math.cos(P.a),sn=d>.05?dy/d:Math.sin(P.a);o.vx=c*24;o.vy=sn*24;o.fly=1.6}}
   }
+  for(const o of A.orbs)if(o.fly){ // flung orbs burst on the first creature they meet
+    const nx=o.x+o.vx*dt,ny=o.y+o.vy*dt;o.fly-=dt;
+    for(const c of live)if(!o.dead&&segDist(c.x,c.y,o.x,o.y,nx,ny)<c.r+.3){hurt(c,40,o.vx*.6,o.vy*.6);o.dead=1}
+    o.x=nx;o.y=ny;if(o.fly<=0||nx<REGIONS[2].x0||nx>REGIONS[2].x1||ny<REGIONS[2].y0||ny>REGIONS[2].y1)o.dead=1}
+  A.orbs=A.orbs.filter(o=>!o.dead);
   if(A.lasso&&A.lasso.flash){A.lasso.flash-=dt;if(A.lasso.flash<=0)A.lasso=null}
 
   { // missile: slow, constant speed, turned by the mouse
@@ -508,7 +535,7 @@ function updateArena(dt,mx,my){
   }
   for(const a of A.arrows){ // arrows fly straight and stop in the first thing they hit
     const nx=a.x+a.vx*dt,ny=a.y+a.vy*dt;a.life-=dt;
-    for(const c of live)if(a.life>0&&segDist(c.x,c.y,a.x,a.y,nx,ny)<c.r+.1){hurt(c,a.dmg,a.vx*.15,a.vy*.15);a.life=0}
+    for(const c of live)if(a.life>0&&segDist(c.x,c.y,a.x,a.y,nx,ny)<c.r+.1){hurt(c,a.dmg,a.vx*.4,a.vy*.4);a.life=0}
     a.x=nx;a.y=ny;if(nx<REGIONS[2].x0||nx>REGIONS[2].x1||ny<REGIONS[2].y0||ny>REGIONS[2].y1)a.life=0;
   }
   A.arrows=A.arrows.filter(a=>a.life>0);
@@ -529,7 +556,7 @@ function updateArena(dt,mx,my){
       if(e<m&&e>1e-6){c.x+=ex/e*(m-e)*.5;c.y+=ey/e*(m-e)*.5}}
     {const ex=c.x-P.x,ey=c.y-P.y,e=Math.hypot(ex,ey)||1e-6,m=c.r+R;
       if(hunted&&c.atk<=0&&e<m+.3){ // a bite: damage and a shove, both bigger from bigger creatures
-        A.hp-=c.r<.6?7:c.r<1?13:24;const kb=6+c.r*7;A.kx-=ex/e*kb;A.ky-=ey/e*kb;c.atk=.9;c.vx+=ex/e*3;c.vy+=ey/e*3}
+        A.hp-=c.r<.6?7:c.r<1?13:24;const kb=15+c.r*13;A.kx-=ex/e*kb;A.ky-=ey/e*kb;c.atk=.9;c.vx+=ex/e*3;c.vy+=ey/e*3}
       if(e<m){c.x+=ex/e*(m-e);c.y+=ey/e*(m-e)}}
     c.x=clamp(c.x,FIELD.x0+c.r,FIELD.x1-c.r);c.y=clamp(c.y,FIELD.y0+c.r,FIELD.y1-c.r);
   }
@@ -635,7 +662,7 @@ function tick(dt){
   }else{const k=DPR*view/Math.min(W,H);wx=input.dx*k;wy=input.dy*k}
   let amx=0,amy=0;if(!input.override&&mouseCaptured()){amx=wx;amy=wy;wx=wy=0}
   const hx=wx,hy=wy;                                   // where the player meant to go, before any shove
-  if(A.kx||A.ky){wx+=A.kx*dt;wy+=A.ky*dt;const d=Math.exp(-dt*7);A.kx*=d;A.ky*=d;if(Math.hypot(A.kx,A.ky)<.05)A.kx=A.ky=0}
+  if(A.kx||A.ky){wx+=A.kx*dt;wy+=A.ky*dt;const d=Math.exp(-dt*5);A.kx*=d;A.ky*=d;if(Math.hypot(A.kx,A.ky)<.05)A.kx=A.ky=0}
   input.dx=input.dy=0;
   const dist=Math.hypot(wx,wy);
   if(dist>1e-6){ // small steps so nothing is tunnelled through, whatever the speed
@@ -654,10 +681,13 @@ function tick(dt){
   updateArena(dt,amx,amy);
   // the camera trails the pointer a little but never lets it stray far from the centre
   // (a drawn bow pulls the camera towards the drag point; a missile takes it along)
-  const cap=mouseCaptured(),fx=cap?(A.missile?A.missile.x:P.x+A.bow.dx):P.x,fy=cap?(A.missile?A.missile.y:P.y+A.bow.dy):P.y;
-  const f=1-Math.exp(-dt*9);CAM.x+=(fx-CAM.x)*f;CAM.y+=(fy-CAM.y)*f;
+  // (a missile takes the camera with it; a drawn bow nudges it towards where the shot will go)
+  let fx=P.x,fy=P.y;
+  if(inArena()){if(A.missile){fx=A.missile.x;fy=A.missile.y}else if(A.bow){fx-=A.bow.px*.6;fy-=A.bow.py*.6}}
+  const easing=A.ease>0;if(easing)A.ease-=dt;                      // gliding back after a missile: slower, and unclamped
+  const f=1-Math.exp(-dt*(easing?3.5:9));CAM.x+=(fx-CAM.x)*f;CAM.y+=(fy-CAM.y)*f;
   const ox=fx-CAM.x,oy=fy-CAM.y,o=Math.hypot(ox,oy),lim=view*.16;
-  if(o>lim){CAM.x=fx-ox/o*lim;CAM.y=fy-oy/o*lim}
+  if(o>lim&&!easing){CAM.x=fx-ox/o*lim;CAM.y=fy-oy/o*lim}
 }
 
 // ---------------------------------------------------------------- rendering
@@ -1140,7 +1170,8 @@ const AV={
   bar:pool(A.creatures.length,()=>new THREE.Mesh(UNIT,bas('#e5484d'))),
   arrow:pool(12,()=>new THREE.Mesh(UNIT,lam('#6b4a32'))),
   pud:pool(60,()=>new THREE.Mesh(DISC,lam('#3b2f25'))),
-  rope:pool(100,()=>new THREE.Mesh(UNIT,lam('#b08a4f'))),
+  orb:pool(24,()=>new THREE.Mesh(ICO,lam('#4aa3c7'))),
+  rope:pool(140,()=>new THREE.Mesh(UNIT,lam('#b08a4f'))),
   line:pool(4,()=>new THREE.Mesh(UNIT,lam('#e9e4d6'))),          // bow string / aim, chain, sword blade, sword guard
   dot:pool(1,()=>new THREE.Mesh(DISC,bas('#ffffff',.7)))[0],
   ball:pool(1,()=>new THREE.Mesh(new THREE.IcosahedronGeometry(1,0),new THREE.MeshLambertMaterial({color:'#3a3d44',flatShading:true})))[0],
@@ -1159,7 +1190,7 @@ function arenaSync(){
   AV.pud.forEach((m,i)=>{const p=A.puddles[i];m.visible=!!p;if(!p)return;const on=p.t>1;m.material=on?AV.flame:AV.fuel;
     const h=on?.5+.45*Math.sin(time*17+i*2.1):.04,r=on?1.25:Math.min(1.1,.4+p.t);m.position.set(p.x,h/2+.02,p.y);m.scale.set(r,h,r)});
   const l=A.lasso,pts=l?[...l.pts,{x:P.x,y:P.y}]:[];
-  AV.rope.forEach((m,i)=>{if(i<pts.length-1&&i<99){stick(m,pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y,.25,l.flash?.3:.1);m.material.emissive.setScalar(l.flash?1:0)}else m.visible=false});
+  AV.rope.forEach((m,i)=>{if(i<pts.length-1){stick(m,pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y,.25,l.flash?.3:.1);m.material.emissive.setScalar(l.flash?1:0)}else m.visible=false});
   for(const m of AV.line)m.visible=false;AV.dot.visible=AV.ball.visible=false;
   const id=A.cur&&A.cur.id;
   if(id==='bow'&&A.bow){const b=A.bow;
@@ -1168,11 +1199,12 @@ function arenaSync(){
     AV.dot.visible=true;AV.dot.position.set(P.x+b.dx,.9,P.y+b.dy);AV.dot.scale.set(.3,.05,.3)}
   if(id==='ball'&&A.ball){const b=A.ball;stick(AV.line[0],P.x,P.y,b.x,b.y,.6,.08);
     AV.ball.visible=true;AV.ball.position.set(b.x,.6,b.y);AV.ball.scale.setScalar(.5);AV.ball.rotation.y+=.2}
-  if(id==='sword'){const c=Math.cos(P.a),s=Math.sin(P.a);stick(AV.line[0],P.x+c*.35,P.y+s*.35,P.x+c*2.1,P.y+s*2.1,1,.1);
+  if(id==='sword'){const c=Math.cos(A.sw.a),s=Math.sin(A.sw.a);stick(AV.line[0],P.x+c*.35,P.y+s*.35,P.x+c*2.1,P.y+s*2.1,1,.1);
     stick(AV.line[1],P.x+c*.45+s*.3,P.y+s*.45-c*.3,P.x+c*.45-s*.3,P.y+s*.45+c*.3,1,.12)}
+  AV.orb.forEach((m,i)=>{const o=A.orbs[i];m.visible=!!o;if(o){m.position.set(o.x,.45,o.y);m.scale.setScalar(.32)}});
   const ms=A.missile;AV.missile.visible=!!ms;
   if(ms){stick(AV.missile,ms.x-Math.cos(ms.a)*.6,ms.y-Math.sin(ms.a)*.6,ms.x+Math.cos(ms.a)*.6,ms.y+Math.sin(ms.a)*.6,1.2,.3)}
-  const bl=A.blast;AV.blast.visible=!!bl;if(bl){AV.blast.position.set(bl.x,1,bl.y);AV.blast.scale.setScalar(.5+bl.t/.45*4.2);AV.blast.material.opacity=.7*(1-bl.t/.45)}
+  const bl=A.blast;AV.blast.visible=!!bl;if(bl){AV.blast.position.set(bl.x,1,bl.y);AV.blast.scale.setScalar(.5+bl.t/.45*bl.r);AV.blast.material.opacity=.7*(1-bl.t/.45)}
 }
 
 // ---- what to show
@@ -1313,7 +1345,7 @@ addEventListener('wheel',e=>{liftStep(e.deltaY<0?1:-1);e.preventDefault()},{pass
 let finger=null;
 cv.addEventListener('pointerdown',e=>{
   if(e.pointerType==='mouse'){if(!locked()){const r=cv.requestPointerLock({unadjustedMovement:true});if(r&&r.catch)r.catch(()=>cv.requestPointerLock())}
-    else if(e.button===0){A.down=true;A.click=true}}
+    else if(e.button===0){A.down=true;A.click=true}else if(e.button===2)A.rclick=true}
   else if(!finger){finger={id:e.pointerId,x:e.clientX,y:e.clientY};hintEl.style.opacity=0;try{cv.setPointerCapture(e.pointerId)}catch(_){}}
   e.preventDefault()});
 cv.addEventListener('pointermove',e=>{
