@@ -274,6 +274,7 @@ function buildDyn(){
     if(!gatesOpen())for(const g of GATES)if(Math.abs(g.cx-P.x)<3)DYN.push({x:g.cx-.1,y:g.y,w:.2,h:.8,za:-1.5,zb:-.5});
   }else if(P.z<=-1.5)P.paid=true;else P.paid=false;
   if(P.z>-.5&&P.z<.5&&P.x<700)for(const c of CARS){const r=carRect(c);if(Math.abs(r.x+r.w/2-P.x)<12&&Math.abs(r.y+r.h/2-P.y)<12)DYN.push({...r,za:-.5,zb:.5})}
+  for(const c of DCARS)if(c!==P.car&&Math.abs(c.x-P.x)<8&&Math.abs(c.y-P.y)<8)for(const e of carEnds(c))DYN.push({cx:e.x,cy:e.y,r:CR,za:-.5,zb:.5});
   if(!BOAT.docked)DYN.push({x:622.9,y:47,w:.2,h:3,za:-.5,zb:.5});   // no boat at the berth: the gap in the rail is roped off
   DYN.push({x:623.4,y:45.6,w:.2,h:1.4,za:-.5,zb:.5},{x:623.4,y:50,w:.2,h:1.4,za:-.5,zb:.5});
   if(P.z>-1.5)return;
@@ -501,7 +502,7 @@ function seatBehind(){
 }
 
 // ---------------------------------------------------------------- state
-const P={vx:0,vy:0,boat:null,ticket:false,paid:false,x:68,y:68.2,z:0,a:-Math.PI/2,lift:null,train:null,walk:0};
+const P={car:null,vx:0,vy:0,boat:null,ticket:false,paid:false,x:68,y:68.2,z:0,a:-Math.PI/2,lift:null,train:null,walk:0};
 let view=VIEW_OUT,indoor=0,bIn=0,time=0,pendingBtn=null;
 // The player's position is kept across page loads. Only places that will still make sense
 // later are saved: not the inside of a lift or a train, which will have moved on.
@@ -521,7 +522,7 @@ function savePosition(){
 // Forget the saved spot and go back to where a new game starts.
 function resetSave(){
   try{localStorage.removeItem(SAVE)}catch(_){}
-  P.x=68;P.y=68.2;P.z=0;P.a=-Math.PI/2;P.lift=P.train=P.sit=P.boat=null;P.ticket=false;pitch=0;CAM.x=P.x;CAM.y=P.y;A.kx=A.ky=0;A.hp=100;equip(null);
+  P.x=68;P.y=68.2;P.z=0;P.a=-Math.PI/2;P.lift=P.train=P.sit=P.boat=P.car=null;for(const c of DCARS){Object.assign(c,c.home);c.vx=c.vy=0}P.ticket=false;pitch=0;CAM.x=P.x;CAM.y=P.y;A.kx=A.ky=0;A.hp=100;equip(null);
 }
 addEventListener('pagehide',savePosition);document.addEventListener('visibilitychange',()=>{if(document.hidden)savePosition()});
 // Mouse / finger travel since the last tick, in CSS pixels. input.override is a scripted direction for tests.
@@ -611,8 +612,55 @@ function updatePeds(dt){
     if(d<=st+.05){q.x=tx;q.y=ty;
       if(q.path.length>1){q.at=q.path[1];q.path.shift();q.on=false}else{q.sit=8+prng()*18}}
     else{q.x+=dx/d*st;q.y+=dy/d*st;q.a=Math.atan2(dy,dx)}
-    if(P.z===0){const ex=q.x-P.x,ey=q.y-P.y,e=Math.hypot(ex,ey);if(e<.55&&e>1e-6){q.x+=ex/e*(.55-e);q.y+=ey/e*(.55-e)}}   // step round the player
+    if(P.z===0){const rr=P.car?1.9:.55,ex=q.x-P.x,ey=q.y-P.y,e=Math.hypot(ex,ey);if(e<rr&&e>1e-6){q.x+=ex/e*(rr-e);q.y+=ey/e*(rr-e)}}   // step round the player (or get out of the way of their car)
   }
+}
+
+// ---------------------------------------------------------------- driving
+// Two cars you can take: E (or a click beside one) gets you in and out. Top-down, the pointer
+// leads and the car follows it: far ahead for speed, close to the car to brake. In first
+// person it is W/S and A/D. Grip depends on the ground, so ice and the pond matter.
+const DCARS=[{x:21.5,y:71.15,a:0,col:'#e0a526'},{x:652,y:76,a:Math.PI,col:'#3f9a63'}].map(c=>({...c,vx:0,vy:0,thr:0,st:0,steer:0,ax:0,ay:0,len:4.4,home:{x:c.x,y:c.y,a:c.a}}));
+const carEnds=c=>{const fx=Math.cos(c.a)*1.3,fy=Math.sin(c.a)*1.3;return[{x:c.x+fx,y:c.y+fy},{x:c.x,y:c.y},{x:c.x-fx,y:c.y-fy}]};   // the car as three discs of radius CR along its length
+const CR=.95;
+const carSpeed=c=>Math.hypot(c.vx,c.vy);
+function nearCar(){if(P.car||P.z!==0||P.boat||P.sit)return null;return DCARS.find(c=>carEnds(c).some(e=>Math.hypot(e.x-P.x,e.y-P.y)<2.3))||null}
+function toggleCar(){
+  if(P.car){const c=P.car;if(carSpeed(c)>2.5)return;
+    for(const side of[-1.75,1.75]){const x=c.x-Math.sin(c.a)*side,y=c.y+Math.cos(c.a)*side;   // driver's side first
+      if(!solidAt(x,y,R)){P.car=null;P.x=x;P.y=y;c.vx=c.vy=c.thr=0;return}}
+    return}
+  const c=nearCar();if(c){P.car=c;c.ax=c.ay=0;if(FP)P.a=c.a;pitch=0}
+}
+function updateDriving(dt){
+  const c=P.car;if(!c)return;
+  const fx=Math.cos(c.a),fy=Math.sin(c.a),sf=surfaceAt(c.x,c.y,0),a0=c.a;
+  if(!FP){ // the pointer leads: steer at it, and go faster the further off it is
+    const d=Math.hypot(c.ax,c.ay),want=Math.atan2(c.ay,c.ax),da=angDiff(want,c.a);
+    if(d<1.6){c.thr=0;c.st=0}
+    else if(Math.abs(da)<2.2){c.thr=clamp((d-1.6)/7,0,1);c.st=clamp(da*1.3,-.6,.6)}
+    else{c.thr=-.6;c.st=clamp(-angDiff(want,c.a+Math.PI)*1.3,-.6,.6)}       // it is behind: back up towards it
+  }
+  c.steer+=clamp(c.st*(FP?.55:1)-c.steer,-2.2*dt,2.2*dt);
+  let vf=c.vx*fx+c.vy*fy,vl=-c.vx*fy+c.vy*fx;
+  const push=sf==='ice'?.3:1;
+  if(c.thr>0)vf+=(vf<0?14:9*push)*c.thr*dt;else if(c.thr<0)vf+=(vf>0?14*push:5*push)*c.thr*dt;else vf*=Math.exp(-dt*(sf==='ice'?.15:1.3));
+  vf=clamp(vf,-6,sf==='water'?4:22);if(sf==='water')vf*=Math.exp(-dt*2.5);
+  vl*=Math.exp(-dt*(sf==='ice'?.5:sf==='water'?6:14));                  // sideways grip: on ice there is almost none
+  c.a+=vf/2.6*Math.tan(c.steer)*dt;
+  const gx=Math.cos(c.a),gy=Math.sin(c.a);c.vx=gx*vf-gy*vl;c.vy=gy*vf+gx*vl;
+  c.x+=c.vx*dt;c.y+=c.vy*dt;
+  // collisions: the car's discs are pushed out of anything solid at street level
+  gather(c.x-4,c.y-4,c.x+4,c.y+4);
+  const solids=[...NEAR.filter(o=>o.za<=0&&o.zb>0),...CARS.map(carRect),...STAIRS.filter(s=>s.zh===0)];
+  for(const o of DCARS)if(o!==c)for(const e of carEnds(o))solids.push({cx:e.x,cy:e.y,r:CR});
+  for(let it=0;it<3;it++)for(const e of carEnds(c))for(const o of solids){let nx,ny,pen;
+    if(o.r!==undefined&&o.cx!==undefined){const dx=e.x-o.cx,dy=e.y-o.cy,d=Math.hypot(dx,dy)||1e-6;pen=CR+o.r-d;nx=dx/d;ny=dy/d}
+    else{const qx=clamp(e.x,o.x,o.x+o.w),qy=clamp(e.y,o.y,o.y+o.h),dx=e.x-qx,dy=e.y-qy,d=Math.hypot(dx,dy);
+      if(d<1e-6){const l=e.x-o.x,r=o.x+o.w-e.x,t=e.y-o.y,b=o.y+o.h-e.y,m=Math.min(l,r,t,b);nx=m===l?-1:m===r?1:0;ny=m===t?-1:m===b?1:0;if(nx)ny=0;pen=CR+m}else{pen=CR-d;nx=dx/d;ny=dy/d}}
+    if(pen>0){c.x+=nx*pen;c.y+=ny*pen;e.x+=nx*pen;e.y+=ny*pen;const vn=c.vx*nx+c.vy*ny;if(vn<0){c.vx-=nx*vn*1.2;c.vy-=ny*vn*1.2;c.vx*=.92;c.vy*=.92}}}
+  if(c.x<900){c.x=clamp(c.x,1.2,678.8);const y0=c.x<200?0:c.x<560?40:42,y1=c.x<200?160:c.x<560?112:130;c.y=clamp(c.y,y0+1.2,y1-1.2)}
+  P.x=c.x;P.y=c.y;P.z=0;if(FP)P.a+=c.a-a0;
 }
 
 // ---------------------------------------------------------------- boat
@@ -889,7 +937,7 @@ function gather(x0,y0,x1,y1){
   }
 }
 function collide(){
-  if(P.sit||P.boat)return;                        // seated: a bench is solid, and you are on it
+  if(P.sit||P.boat||P.car)return;                        // seated: a bench is solid, and you are on it
   for(let it=0;it<4;it++){
     const n=NEAR.length,m=n+DYN.length;
     for(let i=0;i<m;i++){
@@ -1010,7 +1058,7 @@ function updateIndoor(dt){
   for(const b of BUILDINGS){const d=Math.hypot(P.x-b.door.x,P.y-b.door.y);
     b.bIn=P.z>.01?1:P.z<-.01?0:inRect(P.x,P.y,b.rect)?clamp(.5+d/8):clamp(.5-d/8);bIn=Math.max(bIn,b.bIn)}
   indoor=Math.max(bIn,clamp(-P.z)*.5);
-  const target=lerp(VIEW_OUT,VIEW_IN,indoor);
+  const target=P.car?VIEW_OUT*(1.1+.5*Math.min(1,carSpeed(P.car)/20)):lerp(VIEW_OUT,VIEW_IN,indoor);   // driving: pull back, more at speed
   view+=(target-view)*(1-Math.exp(-dt*12));
 }
 function tick(dt){
@@ -1025,6 +1073,7 @@ function tick(dt){
     else if(P.boat&&A.down)tiller(input.dx,input.dy);
     else{P.a+=input.dx*.0024;pitch=clamp(pitch-input.dy*.0024,-1.45,1.45)}
     let f=0,r=0;if(keys.has('KeyW'))f+=1;if(keys.has('KeyS'))f-=1;if(keys.has('KeyD'))r+=1;if(keys.has('KeyA'))r-=1;
+    if(P.car){P.car.thr=f;P.car.st=r;f=r=0}             // at the wheel the keys drive
     if(P.sit){ // seated: settle onto the chair; walking forward stands you up
       const st=P.sit,c=Math.cos(P.a),sn=Math.sin(P.a);
       const up=f>0?standSpot(st):null;
@@ -1037,7 +1086,9 @@ function tick(dt){
     }
     const m=Math.hypot(f,r)||1,sp=(keys.has('ShiftLeft')||keys.has('ShiftRight')?8.5:4)*dt/m,c=Math.cos(P.a),sn=Math.sin(P.a);
     wx=(f*c-r*sn)*sp;wy=(f*sn+r*c)*sp;
-  }else if(P.boat&&A.down){tiller(input.dx,input.dy);wx=wy=0}
+  }else if(P.car){const c=P.car,k=DPR*view/Math.min(W,H);c.ax+=input.dx*k;c.ay+=input.dy*k;   // the mouse moves the pointer the car chases
+    const d=Math.hypot(c.ax,c.ay);if(d>14){c.ax*=14/d;c.ay*=14/d}wx=wy=0}
+  else if(P.boat&&A.down){tiller(input.dx,input.dy);wx=wy=0}
   else{const k=DPR*view/Math.min(W,H);wx=input.dx*k;wy=input.dy*k}
   let amx=0,amy=0;if(!input.override&&mouseCaptured()){amx=wx;amy=wy;wx=wy=0}
   const hx=wx,hy=wy;                                   // where the player meant to go, before any shove
@@ -1049,9 +1100,11 @@ function tick(dt){
     if(b.docked&&P.x<623.3)P.boat=null;                 // back over the side onto the pier
   }
   updateBoat(dt);
+  if(P.car){wx=wy=0;updateDriving(dt)}
+  else if(A.click&&!FP&&!inArena()&&nearCar())toggleCar();
   // Surfaces. Ordinarily the pointer goes exactly where the mouse says. On ice the mouse only
   // pushes: speed builds, and carries on when you stop. In water you wade: slow, and sluggish.
-  const sf=P.boat||P.sit||P.lift?null:surfaceAt(P.x,P.y,P.z),px0=P.x,py0=P.y;
+  const sf=P.boat||P.sit||P.lift||P.car?null:surfaceAt(P.x,P.y,P.z),px0=P.x,py0=P.y;
   if(sf==='ice'){P.vx+=wx*.9;P.vy+=wy*.9;const f=Math.exp(-dt*.45),sp=Math.hypot(P.vx,P.vy),k=sp>30?30/sp:1;P.vx*=f*k;P.vy*=f*k;wx=P.vx*dt;wy=P.vy*dt}
   else if(sf==='water'){let tx=wx/dt*.4,ty=wy/dt*.4;const sp=Math.hypot(tx,ty);if(sp>4){tx*=4/sp;ty*=4/sp}
     const k=Math.min(1,dt*4);P.vx+=(tx-P.vx)*k;P.vy+=(ty-P.vy)*k;wx=P.vx*dt;wy=P.vy*dt}
@@ -1079,6 +1132,7 @@ function tick(dt){
   // (a drawn bow pulls the camera towards the drag point; a missile takes it along)
   // (a missile takes the camera with it; a drawn bow nudges it towards where the shot will go)
   let fx=P.x,fy=P.y;
+  if(P.car){fx+=P.car.vx*.45;fy+=P.car.vy*.45}          // look ahead down the road
   if(inArena()){if(A.missile){fx=A.missile.x;fy=A.missile.y}else if(A.bow){fx-=A.bow.px*.6;fy-=A.bow.py*.6}}
   const easing=A.ease>0;if(easing)A.ease-=dt;                      // gliding back after a missile: slower, and unclamped
   const f=1-Math.exp(-dt*(easing?3.5:9));CAM.x+=(fx-CAM.x)*f;CAM.y+=(fy-CAM.y)*f;
@@ -1708,6 +1762,15 @@ for(const q of PEDS){const mb=new MB();
   mb.cyl(0,0,.2,0,.75,shade('#2b2f38',1),'#2b2f38',8);mb.cyl(0,0,.22,.75,1.42,shade(q.col),q.col,8);mb.cyl(0,0,.125,1.42,1.68,'#d9b48f','#4a3324',8);
   q.g=mb.mesh();OUTG.add(q.g)}
 
+// the cars you can drive
+for(const c of DCARS){const mb=new MB(),L=c.len;
+  mb.box(-L/2,-.92,L,1.84,.22,.85,shade(c.col,.85),c.col);mb.box(-L*.26,-.78,L*.48,1.56,.85,1.38,'#26303b',c.col);
+  mb.box(L/2-.04,-.8,.06,.4,.5,.7,'#fff6c8');mb.box(L/2-.04,.4,.06,.4,.5,.7,'#fff6c8');
+  mb.box(-L/2-.02,-.8,.06,.4,.5,.7,'#c03a34');mb.box(-L/2-.02,.4,.06,.4,.5,.7,'#c03a34');
+  mb.box(L*.2,-.92,.5,1.84,.84,.9,'#ffffff');                                  // a stripe, to tell them from the traffic
+  c.g=mb.mesh();OUTG.add(c.g);
+  const hd=new MB();hd.box(.55,-.9,1.6,1.8,.84,.9,shade(c.col,.9),c.col);hd.box(.5,-.32,.1,.5,.9,1.05,'#1c1e22');c.dash=fpAdd(c.g,hd.mesh())}   // bonnet and wheel, seen from the driver's seat
+
 // the boat
 {const g=new THREE.Group(),mb=new MB();
   mb.box(-2.75,-1.2,5.5,2.4,.0,.04,'#8a6a4a');                                           // deck
@@ -1764,6 +1827,7 @@ function render(){
     if(c.turn>0){const u=1-c.turn;c.g.position.set(c.ln.b+Math.sin(Math.PI*u)*2.2,0,lerp(LANES[0].c,LANES[1].c,u));c.g.rotation.y=-Math.PI*u*-1+0}   // swinging round at the harbour end
     else{c.g.position.set(r.x+r.w/2,0,r.y+r.h/2);c.g.rotation.y=c.ln.ax==='x'?(c.ln.dir>0?0:Math.PI):(c.ln.dir>0?-Math.PI/2:Math.PI/2)}}
   for(const sg of SIGNALS){const st=sigState(sg.g);sg.lamp.material.color.set(st==='g'?'#3fd06a':st==='y'?'#f0b63a':'#e5484d')}
+  for(const c of DCARS){c.g.position.set(c.x,0,c.y);c.g.rotation.y=-c.a;c.dash.visible=FP&&P.car===c}
   {const b=BOAT;b.g.position.set(b.x,Math.sin(time*1.3)*.02,b.y);b.g.rotation.y=-b.a;
     b.tiller.position.set(-1.55,.75,0);b.tiller.scale.set(1.3,.06,.06);b.tiller.rotation.y=b.rud;b.tiller.visible=true}
   arenaSync();updateTiles();
@@ -1783,9 +1847,9 @@ function render(){
     for(const l of LIFTS)l.car.visible=true;
     for(const st of STATIONS)st.g1.visible=st.g2.visible=true;
     for(const tr of TRAINS)tr.g.visible=true;
-    const ey=Y(P.z)+eyeH,cp=Math.cos(pitch);
+    const dc=P.car,ey=dc?1.2:Y(P.z)+eyeH,cp=Math.cos(pitch),ex=dc?P.x+Math.sin(dc.a)*.38-Math.cos(dc.a)*.25:P.x,ez=dc?P.y-Math.cos(dc.a)*.38-Math.sin(dc.a)*.25:P.y;
     camera.aspect=W/H;camera.fov=72;camera.near=.12;camera.far=500;camera.up.set(0,1,0);
-    camera.position.set(P.x,ey,P.y);camera.lookAt(P.x+Math.cos(P.a)*cp,ey+Math.sin(pitch),P.y+Math.sin(P.a)*cp);camera.updateProjectionMatrix();
+    camera.position.set(ex,ey,ez);camera.lookAt(ex+Math.cos(P.a)*cp,ey+Math.sin(pitch),ez+Math.sin(P.a)*cp);camera.updateProjectionMatrix();
     renderer.setRenderTarget(null);renderer.render(scene,camera);updateHud();return;
   }
   camera.near=1;
@@ -1803,13 +1867,14 @@ function render(){
     QUAD.material.opacity=f;renderer.autoClear=false;renderer.render(qscene,qcam);renderer.autoClear=true;
   }
   // the player: a mouse pointer with its tip on the spot
-  const v=new THREE.Vector3(P.x,ty+.05,P.y).project(camera);
+  const v=new THREE.Vector3(P.x+(P.car?P.car.ax:0),ty+.05,P.y+(P.car?P.car.ay:0)).project(camera);
   ptrEl.style.transform=`translate(${((v.x+1)/2*innerWidth).toFixed(1)}px,${((1-v.y)/2*innerHeight).toFixed(1)}px)`;
   updateHud();
 }
 const ptrEl=document.getElementById('ptr');
 const locEl=document.getElementById('loc'),elevEl=document.getElementById('elev');let lastLoc='',hudLift=null;
-function locName(){
+function locName(){return(P.car?'Driving  ·  ':'')+locBase()}
+function locBase(){
   if(P.lift){const l=P.lift;return'Lift · '+(l.moving?(l.target>l.z?'going up':'going down')+' · '+(Math.round(l.z)+1):'Floor '+(Math.round(l.z)+1))}
   if(P.train){const t=P.train;return'Train · '+(t.phase==='run'?'to '+STATIONS[STOPS[(t.i+1)%STOPS.length].si].name:'at '+STATIONS[STOPS[t.i].si].name)}
   const ri=regionAt(P.x),sn=STATIONS[ri].name;
@@ -1839,7 +1904,7 @@ function updateHud(){
   const fpTip=!FP?'':ap?ap.tip()+'  ·  click':P.sit?(P.sit.horiz===undefined?'Sitting  ·  walk forward to stand up':'Sitting  ·  A / D to shuffle along, walk forward to stand up'):MYDOOR.grab?(MYDOOR.open<=0&&MYDOOR.h<.85?'drag down to unlatch':'drag sideways to swing the door'):
     aimingAtDoor()?(MYDOOR.open>0?'Door  ·  hold click and drag sideways':'Door  ·  hold click, drag down to unlatch, then sideways'):'';
   const lx=P.x-STATIONS[regionAt(P.x)].dx;
-  const wp=P.boat?(BOAT.docked?'Aboard  ·  hold click to take the tiller: forward for throttle, sideways to steer':'Tiller  ·  sideways steers, forward / back is the throttle  ·  drift in by the pier to tie up'):fpTip?fpTip:P.z===-1&&!gatesOpen()&&lx>118.6&&lx<121?'The gates are locked  ·  get a ticket from the machines':P.z===-1&&P.ticket&&lx>113.5&&lx<119&&P.y<104.5?'You have a ticket':regionAt(P.x)!==2||P.z!==0?'':FP?'Weapons work in top-down view (F)':A.msg>0?'You were knocked out  ·  back outside the gate':
+  const wp=P.car?(FP?'W / S to drive and brake, A / D to steer  ·  E to get out':'The car follows the pointer: further away is faster, bring it back to brake  ·  E to get out'):nearCar()?'Press E'+(FP?'':' or click')+' to drive':P.boat?(BOAT.docked?'Aboard  ·  hold click to take the tiller: forward for throttle, sideways to steer':'Tiller  ·  sideways steers, forward / back is the throttle  ·  drift in by the pier to tie up'):fpTip?fpTip:P.z===-1&&!gatesOpen()&&lx>118.6&&lx<121?'The gates are locked  ·  get a ticket from the machines':P.z===-1&&P.ticket&&lx>113.5&&lx<119&&P.y<104.5?'You have a ticket':regionAt(P.x)!==2||P.z!==0?'':FP?'Weapons work in top-down view (F)':A.msg>0?'You were knocked out  ·  back outside the gate':
     !A.cur?'Step on a pad to take a weapon  ·  kills '+A.kills:
     A.cur.name+': '+A.cur.help+(A.cur.id==='fire'?'  ·  fuel '+Math.round(A.fuel*100)+'%':'')+'  ·  kills '+A.kills;
   if(wp!==lastWp){lastWp=wp;wpEl.textContent=wp;wpEl.style.display=wp?'block':'none'}
@@ -1871,6 +1936,7 @@ addEventListener('keyup',e=>keys.delete(e.code));addEventListener('blur',()=>key
 addEventListener('keydown',e=>{
   keys.add(e.code);if(e.code==='KeyF'&&!e.repeat)setFP(!FP);
   if(e.code==='KeyR'&&e.shiftKey&&!e.repeat)resetSave();
+  if(e.code==='KeyE'&&!e.repeat)toggleCar();
   if(/^Digit\d$/.test(e.code)&&P.lift&&!FP)pendingBtn=(+e.code.slice(5)+9)%10;   // 1..9, and 0 for the tenth floor
   if(e.code==='ArrowUp'||e.code==='ArrowDown'){liftStep(e.code==='ArrowUp'?1:-1);e.preventDefault()}});
 addEventListener('wheel',e=>{liftStep(e.deltaY<0?1:-1);e.preventDefault()},{passive:false});
@@ -1894,7 +1960,7 @@ elevEl.addEventListener('pointerdown',e=>{e.preventDefault();const f=e.target.da
 let last=performance.now();
 function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;tick(dt);render();requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
-window.G={P,A,PEDS,CARS,BOAT,resetSave,MYDOOR,CHAIRS,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
+window.G={P,A,DCARS,toggleCar,PEDS,CARS,BOAT,resetSave,MYDOOR,CHAIRS,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
 </script>
 </body>
 </html>
