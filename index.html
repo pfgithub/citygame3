@@ -11,6 +11,7 @@
     user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;overscroll-behavior:none;
     font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
   canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #xh{position:fixed;left:50%;top:50%;width:6px;height:6px;margin:-3px;border-radius:50%;background:rgba(255,255,255,.85);box-shadow:0 0 0 1px rgba(0,0,0,.5);pointer-events:none;display:none}
   #ptr{position:fixed;left:0;top:0;width:20px;height:30px;pointer-events:none;filter:drop-shadow(2px 3px 1px rgba(0,0,0,.3))}
   #loc{position:fixed;top:calc(10px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);
     padding:6px 14px;border-radius:999px;background:rgba(18,20,24,.62);color:#eef0f3;font-size:14px;
@@ -34,6 +35,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="xh"></div>
 <svg id="ptr" viewBox="-1 -1 15 23"><path d="M0 0V17L4 13.4 6.9 20 9.6 18.8 6.7 12.4H12Z" fill="#fff" stroke="#111" stroke-width="1.3" stroke-linejoin="round"/></svg>
 <div id="loc"></div>
 <button id="fp"></button>
@@ -368,7 +370,7 @@ for(let z=0;z<=TTOP;z++){
   if(z<TTOP)z%2===0?addStair(31.6,50.8,4.8,1.3,'E',z,z+1):addStair(31.6,52.3,4.8,1.3,'W',z,z+1);
 }
 ffurn(0,31.6,52.3,4.8,1.3,'#3a3d44',{opq:1});ffurn(TTOP,31.6,52.3,4.8,1.3,'#3a3d44',{opq:1});
-const MYDOOR=FLATDOORS.find(d=>d.mine);
+const MYDOOR=FLATDOORS.find(d=>d.mine);MYDOOR.h=0;MYDOOR.grab=false;
 // lobby
 ffurn(0,28.3,57,.45,4.2,'#9aa0a8');ffurn(0,38.7,57.5,1,3.2,'#5d6f86');
 for(const[x,y]of[[32.4,65],[35.6,65],[28.9,65],[39.4,65]])fround(0,x,y,.38,'#4f8a55');
@@ -412,6 +414,10 @@ const BUILDINGS=[
   {rect:TOWER,door:TDOORPT,roof:TROOF,top:TTOP,awning:'#3d5a80',bIn:0}];
 CAR.owner=BUILDINGS[0];TLIFT.owner=BUILDINGS[1];
 
+// Seats you can sit on in first person: the loose chairs around desks and tables.
+const CHAIRS=[];
+for(let z=0;z<=TTOP;z++)for(const f of FL[z].furn)if(f.r!==undefined&&f.ghost&&(f.color==='#3b4350'||f.color==='#b5563f'))CHAIRS.push({x:f.cx,y:f.cy,z});
+
 // ---------------------------------------------------------------- state
 const P={x:68,y:68.2,z:0,a:-Math.PI/2,lift:null,train:null,walk:0};
 let view=VIEW_OUT,indoor=0,bIn=0,time=0,pendingBtn=null;
@@ -429,7 +435,7 @@ addEventListener('pagehide',savePosition);document.addEventListener('visibilityc
 // Mouse / finger travel since the last tick, in CSS pixels. input.override is a scripted direction for tests.
 const input={dx:0,dy:0,override:null};
 const keys=new Set();
-let FP=false,pitch=0;                // first-person mode: P.a is the heading, pitch the look up/down
+let FP=false,pitch=0,eyeH=1.65;                // first-person mode: P.a is the heading, pitch the look up/down
 const CAM={x:P.x,y:P.y};
 
 // ---------------------------------------------------------------- arena combat
@@ -734,9 +740,30 @@ function updateLift(l,dt){
   if(inside)P.z=l.z;
 }
 // The player's own front door unlocks and slides open as they walk up to it.
+// The player's front door is hinged on its west edge and swings into the flat; `open` is how far
+// (0..1 of DOOR_SWING) and `h` how far the handle is turned. Top-down it opens by itself as you
+// walk up. In first person you work it by hand: click the handle and drag down to turn it, then
+// drag sideways to swing the door.
+const DOOR_SWING=1.75,HANDLE=.84;
+function handlePos(){const d=MYDOOR,a=d.open*DOOR_SWING;return{x:d.x+Math.cos(a)*HANDLE,y:d.y+.1+Math.sin(a)*HANDLE,h:Y(d.z)+1.03}}
+function aimingAtHandle(){
+  if(!FP||Math.abs(P.z-MYDOOR.z)>.01)return false;
+  const q=handlePos(),dx=q.x-P.x,dy=q.h-(Y(P.z)+eyeH),dz=q.y-P.y,dist=Math.hypot(dx,dy,dz);if(dist>2.4)return false;
+  const cp=Math.cos(pitch);return(dx*Math.cos(P.a)*cp+dy*Math.sin(pitch)+dz*Math.sin(P.a)*cp)/dist>.985;
+}
+function doorMouse(dx,dy){
+  const d=MYDOOR,side=P.y<d.y+.1?1:-1;                 // from inside the flat the door comes towards you instead
+  if(d.open<=0)d.h=clamp(d.h+dy*.006,0,1);
+  if(d.h>=1)d.open=clamp(d.open+dx*.004*side,0,1);
+}
 function updateMyDoor(dt){
-  const d=MYDOOR,near=Math.abs(P.z-d.z)<.01&&Math.hypot(P.x-(d.x+.5),P.y-(d.y+.1))<1.5;
-  d.open=near?Math.min(1,d.open+dt/.35):Math.max(0,d.open-dt/.35);
+  const d=MYDOOR;
+  if(!FP){d.grab=false;
+    const near=Math.abs(P.z-d.z)<.01&&Math.hypot(P.x-(d.x+.5),P.y-(d.y+.1))<1.5;
+    d.open=near?Math.min(1,d.open+dt/.35):Math.max(0,d.open-dt/.35);d.h=d.open>0?1:0;return}
+  if(d.grab){if(!A.down)d.grab=false}
+  else if(A.click&&aimingAtHandle())d.grab=true;
+  if(!d.grab&&d.open<.03){d.open=0;d.h=Math.max(0,d.h-dt*5)}        // let go of a shut door and the handle springs back
 }
 function updateIndoor(dt){
   // Everything here is a function of where the player stands, not of time.
@@ -755,8 +782,15 @@ function tick(dt){
   let wx,wy;
   if(input.override){const sp=SPEED_IN*view/VIEW_IN*dt;wx=input.override.x*sp;wy=input.override.y*sp}
   else if(FP){ // mouse looks, WASD walks, Shift runs
-    P.a+=input.dx*.0024;pitch=clamp(pitch-input.dy*.0024,-1.45,1.45);
+    if(MYDOOR.grab)doorMouse(input.dx,input.dy);        // a held handle takes the mouse; otherwise it looks around
+    else{P.a+=input.dx*.0024;pitch=clamp(pitch-input.dy*.0024,-1.45,1.45)}
     let f=0,r=0;if(keys.has('KeyW'))f+=1;if(keys.has('KeyS'))f-=1;if(keys.has('KeyD'))r+=1;if(keys.has('KeyA'))r-=1;
+    if(P.sit){ // seated: settle onto the chair; walking forward stands you up
+      if(f>0)P.sit=null;else{const k=Math.min(1,dt*10);P.x+=(P.sit.x-P.x)*k;P.y+=(P.sit.y-P.y)*k;f=r=0}
+    }else if(f<0&&r===0){ // backing into a chair you are facing away from sits you down
+      const c=Math.cos(P.a),sn=Math.sin(P.a);
+      P.sit=CHAIRS.find(ch=>{if(ch.z!==P.z)return false;const dx=ch.x-P.x,dy=ch.y-P.y,d=Math.hypot(dx,dy);return d<.62&&dx*c+dy*sn<-.45*d})||null;
+    }
     const m=Math.hypot(f,r)||1,sp=(keys.has('ShiftLeft')||keys.has('ShiftRight')?8.5:4)*dt/m,c=Math.cos(P.a),sn=Math.sin(P.a);
     wx=(f*c-r*sn)*sp;wy=(f*sn+r*c)*sp;
   }else{const k=DPR*view/Math.min(W,H);wx=input.dx*k;wy=input.dy*k}
@@ -775,6 +809,8 @@ function tick(dt){
   }
   if(!FP&&Math.hypot(hx,hy)>.01)P.a+=angDiff(Math.atan2(hy,hx),P.a)*Math.min(1,Math.hypot(hx,hy)*4);   // the pointer faces the way it last moved
   gather(P.x-1.5,P.y-1.5,P.x+1.5,P.y+1.5);
+  if(!FP)P.sit=null;
+  eyeH+=((P.sit?1.12:1.65)-eyeH)*Math.min(1,dt*7);
   if(!P.lift)pendingBtn=null;
   for(const l of LIFTS)updateLift(l,dt);
   updateMyDoor(dt);collide();updateZ();updateIndoor(dt);
@@ -1203,7 +1239,11 @@ for(const l of LIFTS){
   for(const d of FLATDOORS)up.box(d.x,d.y,d.w,d.h,Y(d.z)+2.13,Y(d.z)+LH-.01,WALLS);
   fpAdd(scene,up.mesh());
   for(const d of FLATDOORS){const g=b.levels[d.z];
-    if(d.mine)d.mesh=dynBox(g,'#3f9a63');
+    if(d.mine){const y=Y(d.z)+.03,mb=new MB(),hb=new MB();
+      mb.box(0,-.04,d.w,.08,0,2.1,'#3f9a63','#2f7a4d');
+      for(const sz of[-.1,.06])hb.box(-.13,sz,.15,.04,-.02,.02,'#d9c27a');      // lever handles, one per face
+      d.pivot=new THREE.Group();d.pivot.position.set(d.x,y,d.y+.1);d.pivot.add(mb.mesh());
+      d.lever=new THREE.Group();d.lever.position.set(HANDLE+.06,1,0);d.lever.add(hb.mesh());d.pivot.add(d.lever);g.add(d.pivot)}
     else{const mb=new MB();mb.box(d.x,d.y+.04,d.w,d.h-.08,Y(d.z)+.03,Y(d.z)+2.1,'#6b4a32','#54392a');g.add(mb.mesh())}}
 }
 
@@ -1373,7 +1413,7 @@ function render(){
   for(const l of LIFTS){l.car.position.y=Y(l.z)+.03;
     l.doors.forEach((pr,i)=>{const z=l.zmin+i,d=l.dr,hw=doorHalf(l,doorOpen(l,z)),y=Y(z)+.03;
       setBox(pr[0],d.x,d.y+.04,hw,d.h-.08,y,y+2.2);setBox(pr[1],d.x+d.w-hw,d.y+.04,hw,d.h-.08,y,y+2.2)})}
-  {const d=MYDOOR,y=Y(d.z)+.03;setBox(d.mesh,d.x,d.y+.04,d.w*(1-d.open),d.h-.08,y,y+2.1)}
+  {const d=MYDOOR;d.pivot.rotation.y=-d.open*DOOR_SWING;d.lever.rotation.z=d.h*.8}
   for(const tr of TRAINS){tr.g.position.set(tr.x,0,tr.y);const y=Y(-2);
     for(const k of[0,1]){const hw=TDW/2*(1-sideOpen(tr,k)*.92),wy=(k?0:TW-.15)+.02;
       tr.doors[k].forEach((pr,i)=>{const x=TDOORS[i];setBox(pr[0],x,wy,hw,.11,y,y+2.1);setBox(pr[1],x+TDW-hw,wy,hw,.11,y,y+2.1)})}}
@@ -1395,7 +1435,7 @@ function render(){
     for(const l of LIFTS)l.car.visible=true;
     for(const st of STATIONS)st.g1.visible=st.g2.visible=true;
     for(const tr of TRAINS)tr.g.visible=true;
-    const ey=Y(P.z)+1.65,cp=Math.cos(pitch);
+    const ey=Y(P.z)+eyeH,cp=Math.cos(pitch);
     camera.aspect=W/H;camera.fov=72;camera.near=.12;camera.far=500;camera.up.set(0,1,0);
     camera.position.set(P.x,ey,P.y);camera.lookAt(P.x+Math.cos(P.a)*cp,ey+Math.sin(pitch),P.y+Math.sin(P.a)*cp);camera.updateProjectionMatrix();
     renderer.setRenderTarget(null);renderer.render(scene,camera);updateHud();return;
@@ -1443,7 +1483,9 @@ const wpEl=document.getElementById('wp'),hpEl=document.getElementById('hp');let 
 function updateHud(){
   const fight=regionAt(P.x)===2&&P.z===0&&!FP;
   hpEl.style.display=fight?'block':'none';if(fight)hpEl.firstChild.style.width=Math.max(0,A.hp)+'%';
-  const wp=regionAt(P.x)!==2||P.z!==0?'':FP?'Weapons work in top-down view (F)':A.msg>0?'You were knocked out  ·  back outside the gate':
+  const fpTip=!FP?'':P.sit?'Sitting  ·  walk forward to stand up':MYDOOR.grab?(MYDOOR.h<1?'drag down to turn the handle':'drag sideways to swing the door'):
+    aimingAtHandle()?'Door handle  ·  hold click and drag down, then sideways':'';
+  const wp=fpTip?fpTip:regionAt(P.x)!==2||P.z!==0?'':FP?'Weapons work in top-down view (F)':A.msg>0?'You were knocked out  ·  back outside the gate':
     !A.cur?'Step on a pad to take a weapon  ·  kills '+A.kills:
     A.cur.name+': '+A.cur.help+(A.cur.id==='fire'?'  ·  fuel '+Math.round(A.fuel*100)+'%':'')+'  ·  kills '+A.kills;
   if(wp!==lastWp){lastWp=wp;wpEl.textContent=wp;wpEl.style.display=wp?'block':'none'}
@@ -1467,7 +1509,7 @@ function showHint(){hintEl.textContent=TOUCH?(FP?'Drag to look around':'Drag to 
 document.addEventListener('pointerlockchange',showHint);
 const liftStep=d=>{const l=P.lift;if(l)pendingBtn=clamp((pendingBtn??l.target??Math.round(l.z))+d,l.zmin,l.zmax)};
 const fpEl=document.getElementById('fp');
-function setFP(on){FP=on;pitch=0;fpEl.textContent=FP?'Top-down view (F)':'First person (F)';ptrEl.style.display=FP?'none':'';showHint()}
+function setFP(on){FP=on;pitch=0;fpEl.textContent=FP?'Top-down view (F)':'First person (F)';ptrEl.style.display=FP?'none':'';document.getElementById('xh').style.display=FP?'block':'none';showHint()}
 fpEl.addEventListener('click',()=>{setFP(!FP);fpEl.blur()});
 setFP(false);
 addEventListener('keyup',e=>keys.delete(e.code));addEventListener('blur',()=>keys.clear());
@@ -1496,7 +1538,7 @@ elevEl.addEventListener('pointerdown',e=>{e.preventDefault();const f=e.target.da
 let last=performance.now();
 function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;tick(dt);render();requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
-window.G={P,A,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
+window.G={P,A,MYDOOR,CHAIRS,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
 </script>
 </body>
 </html>
