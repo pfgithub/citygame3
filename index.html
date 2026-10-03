@@ -415,6 +415,17 @@ CAR.owner=BUILDINGS[0];TLIFT.owner=BUILDINGS[1];
 // ---------------------------------------------------------------- state
 const P={x:68,y:68.2,z:0,a:-Math.PI/2,lift:null,train:null,walk:0};
 let view=VIEW_OUT,indoor=0,bIn=0,time=0,pendingBtn=null;
+// The player's position is kept across page loads. Only places that will still make sense
+// later are saved: not the inside of a lift or a train, which will have moved on.
+const SAVE='ctg.position.v1';
+try{const v=JSON.parse(localStorage.getItem(SAVE)||'null');
+  if(v&&[v.x,v.y,v.z,v.a].every(Number.isFinite)&&v.z>=-2&&v.z<=9){P.x=v.x;P.y=v.y;P.z=v.z;P.a=v.a}}catch(_){}
+let savedAt=0;
+function savePosition(){
+  if(P.lift||P.train)return;
+  try{localStorage.setItem(SAVE,JSON.stringify({x:+P.x.toFixed(3),y:+P.y.toFixed(3),z:+P.z.toFixed(4),a:+P.a.toFixed(3)}))}catch(_){}
+}
+addEventListener('pagehide',savePosition);document.addEventListener('visibilitychange',()=>{if(document.hidden)savePosition()});
 // Mouse / finger travel since the last tick, in CSS pixels. input.override is a scripted direction for tests.
 const input={dx:0,dy:0,override:null};
 const keys=new Set();
@@ -501,14 +512,17 @@ function updateArena(dt,mx,my){
     // A heavy weight on a chain. The chain can swing it round freely, but it only gains speed
     // slowly however hard it is pulled, and the ground scrubs speed off. Whatever the ball will
     // not give, the player has to: you cannot outrun it, and its momentum drags you about.
-    const b=A.ball,L=2.4,GAIN=10*dt*dt,FRIC=4*dt*dt;
+    const b=A.ball,L=2.4,GAIN=10*dt*dt,FRIC=4*dt*dt,HAUL=9*dt*dt;
     let sx=b.x-b.px,sy=b.y-b.py;const s0=Math.hypot(sx,sy),s1=Math.min(1.2,Math.max(0,s0-FRIC));
     if(s0>1e-9){sx*=s1/s0;sy*=s1/s0}
     const ox=b.x,oy=b.y;b.px=ox;b.py=oy;b.x+=sx;b.y+=sy;
     let dx=b.x-P.x,dy=b.y-P.y,d=Math.hypot(dx,dy);
     if(d>L){const e=d-L;b.x-=dx/d*e*.2;b.y-=dy/d*e*.2;                       // the taut chain tugs the ball...
-      const ux=b.x-ox,uy=b.y-oy,s2=Math.hypot(ux,uy),cap=s1+GAIN;
-      if(s2>cap){b.x=ox+ux*cap/s2;b.y=oy+uy*cap/s2}                           // ...but cannot speed it up quickly
+      let ux=b.x-ox,uy=b.y-oy,s2=Math.hypot(ux,uy);const hi=s1+GAIN,lo=Math.max(0,s1-HAUL);
+      if(s2<1e-9){ux=sx;uy=sy;s2=s1}
+      // ...but can neither speed it up quickly nor stop it dead: a ball that runs out of chain
+      // keeps most of its speed and takes the player with it
+      const want=clamp(s2,lo,hi);if(s2>1e-9&&want!==s2){b.x=ox+ux*want/s2;b.y=oy+uy*want/s2}
       dx=b.x-P.x;dy=b.y-P.y;d=Math.hypot(dx,dy);
       if(d>L){P.x=b.x-dx/d*L;P.y=b.y-dy/d*L}}                                 // so the player is hauled back to the end of the chain
     const vx=(b.x-b.px)/dt,vy=(b.y-b.py)/dt,sp=Math.hypot(vx,vy);
@@ -734,7 +748,7 @@ function updateIndoor(dt){
   view+=(target-view)*(1-Math.exp(-dt*12));
 }
 function tick(dt){
-  time+=dt;
+  time+=dt;if(time-savedAt>1){savedAt=time;savePosition()}
   updateTrains(dt);buildDyn();
   // You are the mouse pointer: it moves across the world exactly as far as the
   // mouse moved across the screen, however fast that is.
@@ -1292,7 +1306,6 @@ function arenaSync(){
   const id=A.cur&&A.cur.id;
   if(id==='bow'&&A.bow){const b=A.bow;
     stick(AV.line[0],P.x,P.y,P.x+b.px,P.y+b.py,1,.09);                                   // the pull
-    stick(AV.line[1],P.x,P.y,P.x-b.px*2.5,P.y-b.py*2.5,1,.04);                            // where it will go
     AV.dot.visible=true;AV.dot.position.set(P.x+b.dx,.9,P.y+b.dy);AV.dot.scale.set(.3,.05,.3)}
   if(id==='ball'&&A.ball){const b=A.ball;stick(AV.line[0],P.x,P.y,b.x,b.y,.6,.08);
     AV.ball.visible=true;AV.ball.position.set(b.x,.6,b.y);AV.ball.scale.setScalar(.5);AV.ball.rotation.y+=.2}
