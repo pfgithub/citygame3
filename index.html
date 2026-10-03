@@ -617,30 +617,75 @@ function updatePeds(dt){
 }
 
 // ---------------------------------------------------------------- driving
-// Two cars you can take: E (or a click beside one) gets you in and out. Top-down, the pointer
-// leads and the car follows it: far ahead for speed, close to the car to brake. In first
-// person it is W/S and A/D. Grip depends on the ground, so ice and the pond matter.
-const DCARS=[{x:21.5,y:71.15,a:0,col:'#e0a526'},{x:652,y:76,a:Math.PI,col:'#3f9a63'}].map(c=>({...c,vx:0,vy:0,thr:0,st:0,steer:0,ax:0,ay:0,len:4.4,home:{x:c.x,y:c.y,a:c.a}}));
+// Two cars you can take. You get in through the driver's door: open it, then back into the
+// seat as with any chair (top-down, the door opens as you walk up and you step in). Top-down,
+// the pointer leads and the car follows it; in first person it is W/S and A/D. Grip depends on the ground, so ice and the pond matter.
+const DCARS=[{x:21.5,y:71.15,a:0,col:'#e0a526'},{x:652,y:76,a:Math.PI,col:'#3f9a63'}].map(c=>({...c,door:0,dv:0,grab:false,exiting:false,vx:0,vy:0,thr:0,st:0,steer:0,ax:0,ay:0,len:4.4,home:{x:c.x,y:c.y,a:c.a}}));
 const carEnds=c=>{const fx=Math.cos(c.a)*1.3,fy=Math.sin(c.a)*1.3;return[{x:c.x+fx,y:c.y+fy},{x:c.x,y:c.y},{x:c.x-fx,y:c.y-fy}]};   // the car as three discs of radius CR along its length
 const CR=.95;
 const carSpeed=c=>Math.hypot(c.vx,c.vy);
-function nearCar(){if(P.car||P.z!==0||P.boat||P.sit)return null;return DCARS.find(c=>carEnds(c).some(e=>Math.hypot(e.x-P.x,e.y-P.y)<2.3))||null}
-function toggleCar(){
-  if(P.car){const c=P.car;if(carSpeed(c)>2.5)return;
-    for(const side of[-1.75,1.75]){const x=c.x-Math.sin(c.a)*side,y=c.y+Math.cos(c.a)*side;   // driver's side first
-      if(!solidAt(x,y,R)){P.car=null;P.x=x;P.y=y;c.vx=c.vy=c.thr=0;return}}
-    return}
-  const c=nearCar();if(c){P.car=c;c.ax=c.ay=0;if(FP)P.a=c.a;pitch=0}
+// Car-local coordinates: lx forward, ly to the right. The driver sits left of centre; the
+// door is hinged at its front edge and swings out from the left side.
+const carPt=(c,lx,ly)=>({x:c.x+lx*Math.cos(c.a)-ly*Math.sin(c.a),y:c.y+lx*Math.sin(c.a)+ly*Math.cos(c.a)});
+const SEAT=[-.05,-.38],HINGE=[.55,-.94],DOOR_L=1.1,DOOR_SWING_CAR=1.2;
+function carDoorSeg(c){const t=c.door*DOOR_SWING_CAR,h=carPt(c,HINGE[0],HINGE[1]),e=carPt(c,HINGE[0]-Math.cos(t)*DOOR_L,HINGE[1]-Math.sin(t)*DOOR_L);return{h,e}}
+// The car whose door the crosshair is on (first person), from outside or from the driver's seat.
+function aimedCarDoor(){
+  if(!FP||P.z!==0)return null;
+  const ex=P.car?carPt(P.car,SEAT[0]-.2,SEAT[1]).x:P.x,ey=P.car?carPt(P.car,SEAT[0]-.2,SEAT[1]).y:P.y,dx=Math.cos(P.a),dy=Math.sin(P.a);
+  for(const c of DCARS){if(P.car&&P.car!==c)continue;
+    const{h,e}=carDoorSeg(c),ux=e.x-h.x,uy=e.y-h.y,den=dx*uy-dy*ux;if(Math.abs(den)<1e-6)continue;
+    const t=((h.x-ex)*uy-(h.y-ey)*ux)/den,u=((h.x-ex)*dy-(h.y-ey)*dx)/den;if(t<.05||t>2.4||u<0||u>1)continue;
+    const hgt=(P.car?1.2:eyeH)+t*Math.tan(pitch);if(hgt>.2&&hgt<1.5)return c}
+  return null;
 }
+// A held car door follows the mouse the way it looks on screen: whichever way its free edge
+// would move across the view, dragging that way opens it.
+function carDoorMouse(c,dx,dy){
+  const t=.6,lx=Math.sin(t),ly=-Math.cos(t),wx=lx*Math.cos(c.a)-ly*Math.sin(c.a),wy=lx*Math.sin(c.a)+ly*Math.cos(c.a);   // which way the edge travels, mid-swing
+  const side=wx*-Math.sin(P.a)+wy*Math.cos(P.a);
+  c.dv+=clamp((Math.abs(side)>.15?dx*Math.sign(side):dy)*.008,-.14,.14);   // (seen end-on, pulling the mouse back opens it)
+}
+function enterCar(c){P.car=c;P.sit=null;c.ax=c.ay=0;c.exiting=false;if(FP){P.a=c.a;pitch=0}}
+function exitCar(){
+  const c=P.car;if(!c||carSpeed(c)>2.5)return;
+  for(const side of[-1.75,1.75]){const q=carPt(c,-.3,side);          // out of the driver's door if there is room
+    if(!solidAt(q.x,q.y,R)){P.car=null;P.x=q.x;P.y=q.y;c.vx=c.vy=c.thr=0;return}}
+}
+// Backing towards an open driver's door (first person) / stepping in at one (top-down).
+function carSeatBehind(){
+  const fx=Math.cos(P.a),fy=Math.sin(P.a);
+  return DCARS.find(c=>{if(c.door<.6||P.z!==0)return false;const q=carPt(c,SEAT[0],SEAT[1]),dx=q.x-P.x,dy=q.y-P.y,d=Math.hypot(dx,dy);return d<1.45&&dx*fx+dy*fy<-.3*d})||null;
+}
+const carStepIn=()=>P.z!==0||P.boat||P.sit?null:DCARS.find(c=>{const q=carPt(c,SEAT[0],SEAT[1]);return c.door>.6&&Math.hypot(q.x-P.x,q.y-P.y)<1.03})||null;
+const atCarDoor=c=>{const q=carPt(c,-.1,-1.5);return P.z===0&&!P.car&&Math.hypot(q.x-P.x,q.y-P.y)<1.6};
+function updateCarDoors(dt){
+  for(const c of DCARS){
+    if(!FP){ // top-down: the door opens for you as you come up to it, and shuts behind you
+      c.grab=false;c.dv=0;
+      const want=P.car===c?(c.exiting?1:0):atCarDoor(c)?1:0;c.door=want?Math.min(1,c.door+dt/.3):Math.max(0,c.door-dt/.3);
+      if(c.exiting&&P.car===c&&c.door>.6)exitCar();
+      if(P.car!==c)c.exiting=false;
+      continue}
+    if(c.grab){if(!A.down)c.grab=false}else if(A.click&&aimedCarDoor()===c)c.grab=true;
+    if(P.car===c&&carSpeed(c)>2)c.dv-=8*dt;                           // pulling away swings it shut
+    c.door+=c.dv*dt;c.dv*=Math.exp(-dt*2.2);
+    if(c.door<=0){c.door=0;if(c.dv<0)c.dv=0}else if(c.door>=1){c.door=1;if(c.dv>0)c.dv=0}
+    if(!c.grab&&c.door<.04&&c.dv<=0)c.door=0;
+  }
+}
+const nearCar=()=>P.car||P.z!==0?null:DCARS.find(c=>Math.hypot(c.x-P.x,c.y-P.y)<4)||null;
 function updateDriving(dt){
   const c=P.car;if(!c)return;
   const fx=Math.cos(c.a),fy=Math.sin(c.a),sf=surfaceAt(c.x,c.y,0),a0=c.a;
+  if(P.car===c&&FP&&c.door>.6&&carSpeed(c)<1&&(c.thr>0||c.st<0)){exitCar();return}   // door open, stopped: forward or left is out of the car
   if(!FP){ // the pointer leads: steer at it, and go faster the further off it is
     const d=Math.hypot(c.ax,c.ay),want=Math.atan2(c.ay,c.ax),da=angDiff(want,c.a);
     if(d<1.6){c.thr=0;c.st=0}
     else if(Math.abs(da)<2.2){c.thr=clamp((d-1.6)/7,0,1);c.st=clamp(da*1.3,-.6,.6)}
     else{c.thr=-.6;c.st=clamp(-angDiff(want,c.a+Math.PI)*1.3,-.6,.6)}       // it is behind: back up towards it
   }
+  if(c.door>.2)c.thr=0;                                                // it will not pull away with the door open
   c.steer+=clamp(c.st*(FP?.55:1)-c.steer,-2.2*dt,2.2*dt);
   let vf=c.vx*fx+c.vy*fy,vl=-c.vx*fy+c.vy*fx;
   const push=sf==='ice'?.3:1;
@@ -1069,7 +1114,9 @@ function tick(dt){
   let wx,wy;
   if(input.override){const sp=SPEED_IN*view/VIEW_IN*dt;wx=input.override.x*sp;wy=input.override.y*sp}
   else if(FP){ // mouse looks, WASD walks, Shift runs
+    const heldCar=DCARS.find(c=>c.grab);
     if(MYDOOR.grab)doorMouse(input.dx,input.dy);        // a held handle takes the mouse; otherwise it looks around
+    else if(heldCar)carDoorMouse(heldCar,input.dx,input.dy);
     else if(P.boat&&A.down)tiller(input.dx,input.dy);
     else{P.a+=input.dx*.0024;pitch=clamp(pitch-input.dy*.0024,-1.45,1.45)}
     let f=0,r=0;if(keys.has('KeyW'))f+=1;if(keys.has('KeyS'))f-=1;if(keys.has('KeyD'))r+=1;if(keys.has('KeyA'))r-=1;
@@ -1081,8 +1128,8 @@ function tick(dt){
       else{
         if(r&&st.horiz!==undefined)st.p=clamp(st.p+Math.sign(st.horiz?-sn:c)*r*1.3*dt,st.min,st.max);   // A/D shuffle along a bench
         const q=seatXY(st),k=Math.min(1,dt*10);P.x+=(q.x-P.x)*k;P.y+=(q.y-P.y)*k;f=r=0}
-    }else if(f<0&&r===0){ // backing into a chair you are facing away from sits you down
-      P.sit=seatBehind();
+    }else if(f<0&&r===0&&!P.car){ // backing into a chair you are facing away from sits you down; a car seat puts you at the wheel
+      const cs=carSeatBehind();if(cs)enterCar(cs);else P.sit=seatBehind();
     }
     const m=Math.hypot(f,r)||1,sp=(keys.has('ShiftLeft')||keys.has('ShiftRight')?8.5:4)*dt/m,c=Math.cos(P.a),sn=Math.sin(P.a);
     wx=(f*c-r*sn)*sp;wy=(f*sn+r*c)*sp;
@@ -1100,8 +1147,10 @@ function tick(dt){
     if(b.docked&&P.x<623.3)P.boat=null;                 // back over the side onto the pier
   }
   updateBoat(dt);
-  if(P.car){wx=wy=0;updateDriving(dt)}
-  else if(A.click&&!FP&&!inArena()&&nearCar())toggleCar();
+  updateCarDoors(dt);
+  if(P.car){if(!FP&&A.click&&carSpeed(P.car)<1)P.car.exiting=true;          // top-down: a click when stopped opens the door and you get out
+    wx=wy=0;if(P.car)updateDriving(dt)}
+  else if(!FP){const c=carStepIn();if(c)enterCar(c)}
   // Surfaces. Ordinarily the pointer goes exactly where the mouse says. On ice the mouse only
   // pushes: speed builds, and carries on when you stop. In water you wade: slow, and sluggish.
   const sf=P.boat||P.sit||P.lift||P.car?null:surfaceAt(P.x,P.y,P.z),px0=P.x,py0=P.y;
@@ -1768,7 +1817,10 @@ for(const c of DCARS){const mb=new MB(),L=c.len;
   mb.box(L/2-.04,-.8,.06,.4,.5,.7,'#fff6c8');mb.box(L/2-.04,.4,.06,.4,.5,.7,'#fff6c8');
   mb.box(-L/2-.02,-.8,.06,.4,.5,.7,'#c03a34');mb.box(-L/2-.02,.4,.06,.4,.5,.7,'#c03a34');
   mb.box(L*.2,-.92,.5,1.84,.84,.9,'#ffffff');                                  // a stripe, to tell them from the traffic
+  mb.box(HINGE[0]-DOOR_L,-.925,DOOR_L,.01,.3,1.3,'#1c1e22');                    // the doorway, seen when the door is open
   c.g=mb.mesh();OUTG.add(c.g);
+  {const dm=new MB();dm.box(-DOOR_L,-.03,DOOR_L,.06,.28,.86,shade(c.col,.8),c.col);dm.box(-DOOR_L,-.03,DOOR_L,.06,.86,1.32,'#3b4652');dm.box(-DOOR_L+.08,-.07,.2,.04,.72,.78,'#d9dce0');
+    c.pivot=new THREE.Group();c.pivot.position.set(HINGE[0],0,HINGE[1]-.02);c.pivot.add(dm.mesh());c.g.add(c.pivot)}
   const hd=new MB();hd.box(.55,-.9,1.6,1.8,.84,.9,shade(c.col,.9),c.col);hd.box(.5,-.32,.1,.5,.9,1.05,'#1c1e22');c.dash=fpAdd(c.g,hd.mesh())}   // bonnet and wheel, seen from the driver's seat
 
 // the boat
@@ -1827,7 +1879,7 @@ function render(){
     if(c.turn>0){const u=1-c.turn;c.g.position.set(c.ln.b+Math.sin(Math.PI*u)*2.2,0,lerp(LANES[0].c,LANES[1].c,u));c.g.rotation.y=-Math.PI*u*-1+0}   // swinging round at the harbour end
     else{c.g.position.set(r.x+r.w/2,0,r.y+r.h/2);c.g.rotation.y=c.ln.ax==='x'?(c.ln.dir>0?0:Math.PI):(c.ln.dir>0?-Math.PI/2:Math.PI/2)}}
   for(const sg of SIGNALS){const st=sigState(sg.g);sg.lamp.material.color.set(st==='g'?'#3fd06a':st==='y'?'#f0b63a':'#e5484d')}
-  for(const c of DCARS){c.g.position.set(c.x,0,c.y);c.g.rotation.y=-c.a;c.dash.visible=FP&&P.car===c}
+  for(const c of DCARS){c.g.position.set(c.x,0,c.y);c.g.rotation.y=-c.a;c.dash.visible=FP&&P.car===c;c.pivot.rotation.y=-c.door*DOOR_SWING_CAR}
   {const b=BOAT;b.g.position.set(b.x,Math.sin(time*1.3)*.02,b.y);b.g.rotation.y=-b.a;
     b.tiller.position.set(-1.55,.75,0);b.tiller.scale.set(1.3,.06,.06);b.tiller.rotation.y=b.rud;b.tiller.visible=true}
   arenaSync();updateTiles();
@@ -1904,7 +1956,10 @@ function updateHud(){
   const fpTip=!FP?'':ap?ap.tip()+'  ·  click':P.sit?(P.sit.horiz===undefined?'Sitting  ·  walk forward to stand up':'Sitting  ·  A / D to shuffle along, walk forward to stand up'):MYDOOR.grab?(MYDOOR.open<=0&&MYDOOR.h<.85?'drag down to unlatch':'drag sideways to swing the door'):
     aimingAtDoor()?(MYDOOR.open>0?'Door  ·  hold click and drag sideways':'Door  ·  hold click, drag down to unlatch, then sideways'):'';
   const lx=P.x-STATIONS[regionAt(P.x)].dx;
-  const wp=P.car?(FP?'W / S to drive and brake, A / D to steer  ·  E to get out':'The car follows the pointer: further away is faster, bring it back to brake  ·  E to get out'):nearCar()?'Press E'+(FP?'':' or click')+' to drive':P.boat?(BOAT.docked?'Aboard  ·  hold click to take the tiller: forward for throttle, sideways to steer':'Tiller  ·  sideways steers, forward / back is the throttle  ·  drift in by the pier to tie up'):fpTip?fpTip:P.z===-1&&!gatesOpen()&&lx>118.6&&lx<121?'The gates are locked  ·  get a ticket from the machines':P.z===-1&&P.ticket&&lx>113.5&&lx<119&&P.y<104.5?'You have a ticket':regionAt(P.x)!==2||P.z!==0?'':FP?'Weapons work in top-down view (F)':A.msg>0?'You were knocked out  ·  back outside the gate':
+  const dcar=aimedCarDoor(),nc=nearCar();
+  const wp=P.car?(FP?(P.car.door>.6?'Door open  ·  W or A to get out, or drag it shut to drive':dcar?'Door  ·  hold click and drag to open it (when stopped) and get out':'W / S to drive and brake, A / D to steer  ·  to get out: stop and open the door')
+      :'The car follows the pointer: further away is faster, bring it back to brake  ·  click when stopped to get out'):
+    FP&&dcar?(dcar.door>.6?'Door open  ·  turn round and back into the seat':'Car door  ·  hold click and drag to open'):FP&&nc&&nc.door>.6?'Back into the driver\'s seat to get in':!FP&&nc?'Walk up to the driver\'s door and step in':P.boat?(BOAT.docked?'Aboard  ·  hold click to take the tiller: forward for throttle, sideways to steer':'Tiller  ·  sideways steers, forward / back is the throttle  ·  drift in by the pier to tie up'):fpTip?fpTip:P.z===-1&&!gatesOpen()&&lx>118.6&&lx<121?'The gates are locked  ·  get a ticket from the machines':P.z===-1&&P.ticket&&lx>113.5&&lx<119&&P.y<104.5?'You have a ticket':regionAt(P.x)!==2||P.z!==0?'':FP?'Weapons work in top-down view (F)':A.msg>0?'You were knocked out  ·  back outside the gate':
     !A.cur?'Step on a pad to take a weapon  ·  kills '+A.kills:
     A.cur.name+': '+A.cur.help+(A.cur.id==='fire'?'  ·  fuel '+Math.round(A.fuel*100)+'%':'')+'  ·  kills '+A.kills;
   if(wp!==lastWp){lastWp=wp;wpEl.textContent=wp;wpEl.style.display=wp?'block':'none'}
@@ -1936,7 +1991,6 @@ addEventListener('keyup',e=>keys.delete(e.code));addEventListener('blur',()=>key
 addEventListener('keydown',e=>{
   keys.add(e.code);if(e.code==='KeyF'&&!e.repeat)setFP(!FP);
   if(e.code==='KeyR'&&e.shiftKey&&!e.repeat)resetSave();
-  if(e.code==='KeyE'&&!e.repeat)toggleCar();
   if(/^Digit\d$/.test(e.code)&&P.lift&&!FP)pendingBtn=(+e.code.slice(5)+9)%10;   // 1..9, and 0 for the tenth floor
   if(e.code==='ArrowUp'||e.code==='ArrowDown'){liftStep(e.code==='ArrowUp'?1:-1);e.preventDefault()}});
 addEventListener('wheel',e=>{liftStep(e.deltaY<0?1:-1);e.preventDefault()},{passive:false});
@@ -1958,9 +2012,9 @@ elevEl.addEventListener('pointerdown',e=>{e.preventDefault();const f=e.target.da
 
 // ---------------------------------------------------------------- loop
 let last=performance.now();
-function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;tick(dt);render();requestAnimationFrame(frame)}
+function frame(now){const dt=clamp((now-last)/1000,0,.05);last=now;tick(dt);render();requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
-window.G={P,A,DCARS,toggleCar,PEDS,CARS,BOAT,resetSave,MYDOOR,CHAIRS,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
+window.G={P,A,DCARS,exitCar,enterCar,PEDS,CARS,BOAT,resetSave,MYDOOR,CHAIRS,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
 </script>
 </body>
 </html>
