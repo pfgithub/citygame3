@@ -273,6 +273,7 @@ function buildDyn(){
     if(!FP&&!P.ticket&&lx>114&&lx<118.5&&P.y<103.6)P.ticket=true;        // top-down: walking up to a machine buys one
     if(!gatesOpen())for(const g of GATES)if(Math.abs(g.cx-P.x)<3)DYN.push({x:g.cx-.1,y:g.y,w:.2,h:.8,za:-1.5,zb:-.5});
   }else if(P.z<=-1.5)P.paid=true;else P.paid=false;
+  if(P.z>-.5&&P.z<.5&&regionAt(P.x)===0)for(const c of CARS){const r=carRect(c);if(Math.abs(r.x+r.w/2-P.x)<12&&Math.abs(r.y+r.h/2-P.y)<12)DYN.push({...r,za:-.5,zb:.5})}
   if(!BOAT.docked)DYN.push({x:622.9,y:47,w:.2,h:3,za:-.5,zb:.5});   // no boat at the berth: the gap in the rail is roped off
   DYN.push({x:623.4,y:45.6,w:.2,h:1.4,za:-.5,zb:.5},{x:623.4,y:50,w:.2,h:1.4,za:-.5,zb:.5});
   if(P.z>-1.5)return;
@@ -502,6 +503,37 @@ const input={dx:0,dy:0,override:null};
 const keys=new Set();
 let FP=false,pitch=0,eyeH=1.65;                // first-person mode: P.a is the heading, pitch the look up/down
 const CAM={x:P.x,y:P.y};
+
+// ---------------------------------------------------------------- traffic
+// The demo region ends in barriers across the sidewalks only; the roads run on through.
+const BARRIERS=[[-.6,66,.6,4],[-.6,82,.6,4],[200,66,.6,4],[200,82,.6,4],[86,-.6,4,.6],[100,-.6,4,.6],[86,160,4,.6],[100,160,4,.6]];
+// Four lanes through one signalled crossroads. `c` is the lane's centre line, `stop` where the
+// front of a car waits. Group 0 is the avenue, group 1 the cross street.
+const LANES=[{ax:'x',dir:1,c:77.8,stop:85.4,sig:0,a:-60,b:260},{ax:'x',dir:-1,c:74.2,stop:104.6,sig:0,a:-60,b:260},
+  {ax:'y',dir:1,c:92.5,stop:65.4,sig:1,a:-60,b:220},{ax:'y',dir:-1,c:97.5,stop:86.6,sig:1,a:-60,b:220}];
+const SIG_T=26;
+function sigState(g){const t=time%SIG_T;return g===0?(t<12?'g':t<14?'y':'r'):(t<15?'r':t<23?'g':t<25?'y':'r')}
+const CARS=[];
+{const tr=mulberry32(21);LANES.forEach((ln,li)=>{const n=ln.ax==='x'?4:3;
+  for(let i=0;i<n;i++)CARS.push({ln,s:ln.a+(i+tr()*.5)*(ln.b-ln.a)/n,v:8,len:4.3+tr()*.5,col:CARC[Math.floor(tr()*CARC.length)]})})}
+const carRect=c=>c.ln.ax==='x'?{x:c.s-c.len/2,y:c.ln.c-.92,w:c.len,h:1.84}:{x:c.ln.c-.92,y:c.s-c.len/2,w:1.84,h:c.len};
+// Things a driver brakes for besides lights and the car in front: [x,y] spots on the road.
+function roadUsers(){const u=[];if(P.z===0&&regionAt(P.x)===0)u.push(P);if(typeof PEDS!=='undefined')for(const q of PEDS)if(q.on)u.push(q);return u}
+function updateTraffic(dt){
+  const users=roadUsers();
+  for(const c of CARS){const ln=c.ln,d=ln.dir,front=c.s+d*c.len/2;
+    let free=1e9;                                                       // clear road ahead of the bumper, metres
+    for(const o of CARS)if(o!==c&&o.ln===ln){const g=(o.s-c.s)*d-(o.len+c.len)/2;if(g>-1&&g<free)free=g-1.6}
+    const st=sigState(ln.sig),ds=(ln.stop-front)*d;
+    if(ds>-.5&&(st==='r'||(st==='y'&&ds>c.v*c.v/12)))free=Math.min(free,ds-.4);
+    for(const u of users){const along=((ln.ax==='x'?u.x:u.y)-front)*d,lat=Math.abs((ln.ax==='x'?u.y:u.x)-ln.c);
+      if(lat<1.7&&along>-1&&along<40)free=Math.min(free,along-1.6)}
+    const want=Math.min(11,Math.sqrt(2*5*Math.max(0,free)));            // the speed it could still stop from
+    c.v+=clamp(want-c.v,-12*dt,3*dt);if(c.v<.05&&want<.05)c.v=0;
+    c.s+=d*c.v*dt;
+    if(d>0&&c.s>ln.b)c.s-=ln.b-ln.a;else if(d<0&&c.s<ln.a)c.s+=ln.b-ln.a;
+  }
+}
 
 // ---------------------------------------------------------------- boat
 // A small launch tied up at the harbour pier. Step aboard through the gap in the rail, hold
@@ -901,7 +933,7 @@ function updateIndoor(dt){
 }
 function tick(dt){
   time+=dt;if(time-savedAt>1){savedAt=time;savePosition()}
-  updateTrains(dt);buildDyn();
+  updateTrains(dt);updateTraffic(dt);buildDyn();
   // You are the mouse pointer: it moves across the world exactly as far as the
   // mouse moved across the screen, however fast that is.
   let wx,wy;
@@ -1004,7 +1036,7 @@ function drawOutdoor(g){
   for(let x=90.4;x<99.6;x+=1.1){g.fillRect(x,66.6,.55,2.8);g.fillRect(x,82.6,.55,2.8)}
   g.fillRect(85.2,76.4,.4,5.6);g.fillRect(104.4,70,.4,5.6);g.fillRect(90,65.2,4.6,.4);g.fillRect(95.4,86.4,4.6,.4);
   // road-closed barriers at the edge of the demo region
-  for(const[x,y,w,h]of[[-.6,66,.6,20],[200,66,.6,20],[86,-.6,18,.6],[86,160,18,.6]]){
+  for(const[x,y,w,h]of BARRIERS){
     g.fillStyle='#e8762c';g.fillRect(x,y,w,h);g.fillStyle='#f4f1ea';
     if(w<h)for(let k=y+.5;k<y+h;k+=2)g.fillRect(x,k,w,1);else for(let k=x+.5;k<x+w;k+=2)g.fillRect(k,y,1,h)}
   // park
@@ -1336,7 +1368,7 @@ const CANOPIES=[];
   for(const x of BOLLARDS)mb.cyl(x,61,.22,0,.7,'#2c2f35','#3a3d44',8);
   mb.cyl(FOUNT.x,FOUNT.y,FOUNT.r,0,.5,'#a39d8e','#b9b3a4',24);mb.cyl(FOUNT.x,FOUNT.y,FOUNT.r-.35,0,.52,'#6fb3d6','#6fb3d6',24);
   mb.cyl(FOUNT.x,FOUNT.y,.35,0,1.3,'#cfcabd','#e5e1d6',10);
-  for(const[x,y,w,h]of[[-.6,66,.6,20],[200,66,.6,20],[86,-.6,18,.6],[86,160,18,.6]])mb.box(x,y,w,h,0,1,'#e8762c','#f4f1ea');
+  for(const[x,y,w,h]of BARRIERS)mb.box(x,y,w,h,0,1,'#e8762c','#f4f1ea');
   for(const st of STATIONS){const dx=st.dx;
     mb.cyl(dx+108.6,90.8,.1,0,3,'#2a2d33','#2a2d33',6);mb.cyl(dx+108.6,90.8,.75,3,3.12,'#1f5fb5','#1f5fb5',16);
     const c=SUBCOVER;gl.box(dx+c.x,c.y,c.w,c.h,2.6,2.72,'#7fa6bd','#8fb4c8');
@@ -1556,6 +1588,16 @@ for(const g of GATES){g.pivot=new THREE.Group();g.pivot.position.set(g.cx,Y(-1),
   const mb=new MB();mb.box(-.03,0,.06,.78,.95,1.03,'#c9cdd3');mb.box(-.05,0,.1,.1,.6,1.05,'#8e949c');g.pivot.add(mb.mesh());
   STATIONS[regionAt(g.cx)].g1.add(g.pivot)}
 
+// traffic: moving cars and the signals
+for(const c of CARS){const mb=new MB(),L=c.len;
+  mb.box(-L/2,-.92,L,1.84,.22,.85,shade(c.col,.85),c.col);mb.box(-L*.26,-.78,L*.48,1.56,.85,1.38,'#26303b',c.col);
+  mb.box(L/2-.04,-.8,.06,.4,.5,.7,'#fff6c8');mb.box(L/2-.04,.4,.06,.4,.5,.7,'#fff6c8');
+  mb.box(-L/2-.02,-.8,.06,.4,.5,.7,'#c03a34');mb.box(-L/2-.02,.4,.06,.4,.5,.7,'#c03a34');
+  c.g=mb.mesh();c.g.rotation.y=c.ln.ax==='x'?(c.ln.dir>0?0:Math.PI):(c.ln.dir>0?-Math.PI/2:Math.PI/2);OUTG.add(c.g)}
+const SIGNALS=[[85.4,82.7,0],[104.6,69.3,0],[89.3,65.4,1],[100.7,86.6,1]].map(([x,y,g])=>{
+  const mb=new MB();mb.cyl(x,y,.08,0,4,'#33363c','#33363c',6);mb.box(x-.25,y-.25,.5,.5,3.9,5.1,'#1f2126');OUTG.add(mb.mesh());
+  const lamp=new THREE.Mesh(UNIT,new THREE.MeshBasicMaterial());lamp.position.set(x,4.75,y);lamp.scale.set(.62,.9,.62);OUTG.add(lamp);return{lamp,g}});
+
 // the boat
 {const g=new THREE.Group(),mb=new MB();
   mb.box(-2.75,-1.2,5.5,2.4,.0,.04,'#8a6a4a');                                           // deck
@@ -1607,6 +1649,8 @@ function render(){
   for(const g of GATES){ // an unlocked arm swings away from you as you come through
     const d=Math.hypot(P.x-g.cx,P.y-g.cy),o=P.z===-1&&gatesOpen()?clamp((1.05-d)/.6):0;
     g.o+=(o-g.o)*.35;g.pivot.rotation.y=(P.x<g.cx?1:-1)*g.o*1.45}
+  for(const c of CARS){const r=carRect(c);c.g.position.set(r.x+r.w/2,0,r.y+r.h/2)}
+  for(const sg of SIGNALS){const st=sigState(sg.g);sg.lamp.material.color.set(st==='g'?'#3fd06a':st==='y'?'#f0b63a':'#e5484d')}
   {const b=BOAT;b.g.position.set(b.x,Math.sin(time*1.3)*.02,b.y);b.g.rotation.y=-b.a;
     b.tiller.position.set(-1.55,.75,0);b.tiller.scale.set(1.3,.06,.06);b.tiller.rotation.y=b.rud;b.tiller.visible=true}
   arenaSync();updateTiles();
@@ -1734,7 +1778,7 @@ elevEl.addEventListener('pointerdown',e=>{e.preventDefault();const f=e.target.da
 let last=performance.now();
 function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;tick(dt);render();requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
-window.G={P,A,BOAT,resetSave,MYDOOR,CHAIRS,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
+window.G={P,A,CARS,BOAT,resetSave,MYDOOR,CHAIRS,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{pendingBtn=f},get view(){return view},get bIn(){return bIn}};
 </script>
 </body>
 </html>
