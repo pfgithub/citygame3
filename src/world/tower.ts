@@ -13,10 +13,10 @@ export const TROOF:Roof={...TOWER,color:'#a39184',details:roofDetails(22,44,24,1
 export const TLIFT=addLift(38.4,51.6,0,TTOP);
 // Flat doors; only the player's own (`mine`) opens. `open` is how far (0..1).
 export interface FlatDoor extends Rect{z:number,name:string,mine:boolean,open:number}
-// The player's own door also has a handle: h is how far it is turned (this replaces the door's
-// rect height, which is left at 0), v how fast the door is swinging, grab whether it is held.
+// The player's own door also has a handle: `handle` is how far it is turned, v how fast the door
+// is swinging, grab whether it is held.
 // pivot and lever are its meshes, set when the scene is built.
-export interface MyDoor extends FlatDoor{v:number,grab:boolean,pivot:Group,lever:Group}
+export interface MyDoor extends FlatDoor{handle:number,v:number,grab:boolean,pivot:Group,lever:Group}
 export const FLATDOORS:FlatDoor[]=[];
 function wallWin(z:number,x:number,y:number,w:number,h:number,starts:number[],len:number){
   const rec:WinWall={x,y,w,h,wins:[],len};FL[z].walls.push(rec);
@@ -47,7 +47,7 @@ for(let z=0;z<=TTOP;z++){
   if(z<TTOP)z%2===0?addStair(31.6,50.8,4.8,1.3,'E',z,z+1):addStair(31.6,52.3,4.8,1.3,'W',z,z+1);
 }
 ffurn(0,31.6,52.3,4.8,1.3,'#3a3d44',{opq:1});ffurn(TTOP,31.6,52.3,4.8,1.3,'#3a3d44',{opq:1});
-export const MYDOOR=FLATDOORS.find(d=>d.mine) as MyDoor;MYDOOR.h=0;MYDOOR.v=0;MYDOOR.grab=false;
+export const MYDOOR=FLATDOORS.find(d=>d.mine) as MyDoor;MYDOOR.handle=0;MYDOOR.v=0;MYDOOR.grab=false;
 // lobby
 ffurn(0,28.3,57,.45,4.2,'#9aa0a8');ffurn(0,38.7,57.5,1,3.2,'#5d6f86');
 for(const[x,y]of[[32.4,65],[35.6,65],[28.9,65],[39.4,65]])fround(0,x,y,.38,'#4f8a55');

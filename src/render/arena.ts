@@ -56,7 +56,7 @@ export function arenaSync(){
   if(id==='ball'&&A.ball){const b=A.ball;stick(AV.line[0],P.x,P.y,b.x,b.y,.6,.08);
     AV.ball.visible=true;AV.ball.position.set(b.x,.6,b.y);AV.ball.scale.setScalar(.5);AV.ball.rotation.y+=.2}
   if(id==='spear'){const a=A.sp?A.sp.a:P.a,r=1.8+(A.sp?A.sp.len:0),c=Math.cos(a),s=Math.sin(a);
-    stick(AV.line[0],P.x+c*.3,P.y+s*.3,P.x+c*(r-.35),P.y+s*(r-.35),1,.08);   // the shaft stays in hand and reaches outAV.line[0].material=AV.wood;
+    stick(AV.line[0],P.x+c*.3,P.y+s*.3,P.x+c*(r-.35),P.y+s*(r-.35),1,.08);AV.line[0].material=AV.wood;   // the shaft stays in hand and reaches out
     stick(AV.line[1],P.x+c*(r-.4),P.y+s*(r-.4),P.x+c*r,P.y+s*r,1,.16)}
   else if(id!=='shield')AV.line[0].material=AV.pale;
   if(id==='shield'){const c=Math.cos(P.a),s=Math.sin(P.a),f=A.up?.75:.2,hw=A.up?.95:.5;

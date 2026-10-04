@@ -45,7 +45,7 @@ export function updateHud(){
   const fight=regionAt(P.x)===2&&P.z===0&&!S.fp;
   hpEl.style.display=fight?'block':'none';if(fight)(hpEl.firstChild as HTMLElement).style.width=Math.max(0,A.hp)+'%';
   const ap=aimedPress();
-  const fpTip=!S.fp?'':ap?ap.tip()+'  ·  click':P.sit?(P.sit.horiz===undefined?'Sitting  ·  walk forward to stand up':'Sitting  ·  A / D to shuffle along, walk forward to stand up'):MYDOOR.grab?(MYDOOR.open<=0&&MYDOOR.h<.85?'drag down to unlatch':'drag sideways to swing the door'):
+  const fpTip=!S.fp?'':ap?ap.tip()+'  ·  click':P.sit?(P.sit.horiz===undefined?'Sitting  ·  walk forward to stand up':'Sitting  ·  A / D to shuffle along, walk forward to stand up'):MYDOOR.grab?(MYDOOR.open<=0&&MYDOOR.handle<.85?'drag down to unlatch':'drag sideways to swing the door'):
     aimingAtDoor()?(MYDOOR.open>0?'Door  ·  hold click and drag sideways':'Door  ·  hold click, drag down to unlatch, then sideways'):'';
   const lx=P.x-STATIONS[regionAt(P.x)].dx;
   const dcar=aimedCarDoor(),nc=nearCar();

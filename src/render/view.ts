@@ -58,7 +58,7 @@ export function render(){
   for(const l of LIFTS){l.car.position.y=Y(l.z)+.03;
     l.doors.forEach((pr,i)=>{const z=l.zmin+i,d=l.dr,hw=doorHalf(l,doorOpen(l,z)),y=Y(z)+.03;
       setBox(pr[0],d.x,d.y+.04,hw,d.h-.08,y,y+2.2);setBox(pr[1],d.x+d.w-hw,d.y+.04,hw,d.h-.08,y,y+2.2)})}
-  {const d=MYDOOR;d.pivot.rotation.y=-d.open*DOOR_SWING;d.lever.rotation.z=d.h*.8}
+  {const d=MYDOOR;d.pivot.rotation.y=-d.open*DOOR_SWING;d.lever.rotation.z=d.handle*.8}
   for(const tr of TRAINS){tr.g.position.set(tr.x,0,tr.y);const y=Y(-2);
     for(const k of[0,1]){const hw=TDW/2*(1-sideOpen(tr,k)*.92),wy=(k?0:TW-.15)+.02;
       tr.doors[k].forEach((pr,i)=>{const x=TDOORS[i];setBox(pr[0],x,wy,hw,.11,y,y+2.1);setBox(pr[1],x+TDW-hw,wy,hw,.11,y,y+2.1)})}}
