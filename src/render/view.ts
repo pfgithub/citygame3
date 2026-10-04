@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Y } from '../constants';
+import { WALL_H, Y } from '../constants';
 import { ptrEl, updateHud } from '../hud';
 import { arenaSync } from './arena';
 import { FPONLY, setBox } from './mesh';
@@ -21,7 +21,7 @@ import { type Building, BUILDINGS } from '../world/buildings';
 import { type Lift, LIFTS, STAIRS } from '../world/floors';
 import { DOCK, EDGEY, GATES, STATIONS, TDOORS, TDW, TRAINS, TW, dockedDoor, sideOpen } from '../world/subway';
 import { MYDOOR, MYFLAT, MYRECT } from '../world/tower';
-import { tiltEye } from '../tilt';
+import { EYE, TILT, tiltEye } from '../tilt';
 
 // ---- what to show
 // A view is {k, b}: storey k of building b cut open (b=null: nothing cut open,
@@ -100,11 +100,13 @@ export function render(){
   }
   camera.near=1;
   // camera: straight down, high enough that `view` metres span the short side of the screen
-  const hgt=S.view/2/Math.tan(HALF_FOV),ty=Y(P.z);
-  // The floor the pointer is on is the screen's glass: the camera stays square to it, at the eye
-  // (straight above unless the phone is tilted, see tilt.ts), with a frustum through the screen's edges.
-  const m=Math.min(S.w,S.h),sw=S.view*S.w/m,sh=S.view*S.h/m,e=tiltEye(),ex=e.x*hgt,ey=e.y*hgt,ez=e.z*hgt,n=camera.near/ez;
-  camera.far=hgt+90;camera.position.set(CAM.x+ex,ty+ez,CAM.y-ey);camera.up.set(0,0,-1);camera.lookAt(CAM.x+ex,ty,CAM.y-ey);camera.updateMatrixWorld();
+  const hgt=S.view/2/Math.tan(HALF_FOV),ty=Y(P.z),e=tiltEye();
+  // The screen is a pane of glass `gy` up: the floor the pointer is on, or with 3D tilt on, the tops
+  // of its walls. The camera stays square to it, at the eye (straight above unless the phone is
+  // tilted, see tilt.ts) `d` away, with a frustum through the screen's edges.
+  const m=Math.min(S.w,S.h),sw=S.view*S.w/m,sh=S.view*S.h/m,gy=ty+WALL_H*TILT.mix,d=lerp(hgt,S.view*EYE,TILT.mix);
+  const ex=e.x*d,ey=e.y*d,ez=e.z*d,n=camera.near/ez;
+  camera.far=d+90;camera.position.set(CAM.x+ex,gy+ez,CAM.y-ey);camera.up.set(0,0,-1);camera.lookAt(CAM.x+ex,gy,CAM.y-ey);camera.updateMatrixWorld();
   camera.projectionMatrix.makePerspective((-sw/2-ex)*n,(sw/2-ex)*n,(sh/2-ey)*n,(-sh/2-ey)*n,camera.near,camera.far);
   camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
   const[A,B,f]=views();
