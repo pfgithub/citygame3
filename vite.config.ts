@@ -8,5 +8,9 @@ export default defineConfig({
   resolve: { alias: { 'box2d-compat': decodeURIComponent(new URL('./node_modules/box2d3-wasm/build/dist/es/compat/Box2D.compat.mjs', import.meta.url).pathname) } },
   // three.js is most of the bundle (~600 kB minified however it is imported, since the renderer
   // pulls in nearly all of it); don't warn about that.
-  build: { chunkSizeWarningLimit: 800, target: 'es2022' },
+  build: {
+    chunkSizeWarningLimit: 800, target: 'es2022',
+    // the game, and a standalone demo of the thin-wall physics solver (served at demos/physics-solver/)
+    rollupOptions: { input: { main: 'index.html', solver: 'demos/physics-solver/index.html' } },
+  },
 });

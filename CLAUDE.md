@@ -26,4 +26,8 @@ Top-down 3D city game in TypeScript and three.js, bundled with Vite.
 - `render/`: the 3D scene (`scene*.ts` build it once, `view.ts` updates and draws each frame), the
   texture painters (`paint.ts`) and mesh helpers (`mesh.ts`).
 - `hud.ts`, `input.ts`, `main.ts` (the loop, and `window.G` for scripted tests).
+- `demos/`: standalone pages built alongside the game (listed in `vite.config.ts`). `demos/physics-solver/` (code in
+  `src/demos/`) is our own small rigid-body solver whose walls have no thickness and are never passed through:
+  each wall remembers which side every body is on, and substeps are cut short enough that nothing moves more
+  than 1 cm in one. Served at pfg.pw/citygame3/demos/physics-solver/.
 - Colours are used as written: three's colour management is off and output is linear (see `render/renderer.ts`).

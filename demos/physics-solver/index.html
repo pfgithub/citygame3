@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Thin-wall solver</title>
+<style>
+  :root{color-scheme:dark}
+  html,body{margin:0;height:100%;background:#16181d;color:#d9dce2;font:13px/1.4 system-ui,sans-serif;overflow:hidden}
+  canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+  canvas.drag{cursor:grabbing}
+  #ui{position:fixed;left:12px;top:12px;background:rgba(22,24,29,.85);padding:10px 12px;border-radius:8px;max-width:360px}
+  #ui h1{font-size:14px;margin:0 0 4px}
+  #ui p{margin:0 0 8px;color:#9aa0aa}
+  #ui label{display:flex;gap:8px;align-items:center;margin:4px 0}
+  #ui input[type=range]{flex:1}
+  #ui button{background:#2c313a;color:#d9dce2;border:1px solid #3d434e;border-radius:5px;padding:3px 10px;cursor:pointer}
+  #stats{font-variant-numeric:tabular-nums;color:#b8bec8;margin-top:6px;white-space:pre}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="ui">
+  <h1>Thin-wall solver</h1>
+  <p>Drag a cube. The walls have no thickness at all; pull a cube into one as hard as you like.</p>
+  <label>Pull <input id="str" type="range" min="0" max="4" step=".01" value="3"><span id="strv"></span></label>
+  <label><input id="cps" type="checkbox"> show contacts</label>
+  <button id="reset">Reset</button>
+  <div id="stats"></div>
+</div>
+<script type="module" src="../../src/demos/physics-solver.ts"></script>
+</body>
+</html>
