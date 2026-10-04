@@ -1,25 +1,33 @@
 import { box } from './colliders';
-import { FL, addLift, addStair, ffurn, fround, fwall } from './floors';
-import { building, roofDetails } from './outdoors';
+import type { Group } from 'three';
+import type { Rect } from '../types';
+import { FL, type WinWall, addLift, addStair, ffurn, fround, fwall } from './floors';
+import { type Roof, building, roofDetails } from './outdoors';
 
 // Ten identical floors: a corridor with flats on both sides, a stair core and a
 // lift. Every flat door is locked except the player's own.
 export const TOWER={x:22,y:44,w:24,h:22},TDOORPT={x:34,y:65.85},TTOP=9,MYFLAT={z:6,id:'03'};
 export const MYRECT={x:28.2,y:56,w:5.8,h:9.7};
 building(-40,40,58,26);
-export const TROOF={...TOWER,color:'#a39184',details:roofDetails(22,44,24,18)};
+export const TROOF:Roof={...TOWER,color:'#a39184',details:roofDetails(22,44,24,18)};
 export const TLIFT=addLift(38.4,51.6,0,TTOP);
-export const FLATDOORS=[];
-export function wallWin(z,x,y,w,h,starts,len){
-  const rec={x,y,w,h,wins:[],len};FL[z].walls.push(rec);
+// Flat doors; only the player's own (`mine`) opens. `open` is how far (0..1).
+export interface FlatDoor extends Rect{z:number,name:string,mine:boolean,open:number}
+// The player's own door also has a handle: h is how far it is turned (this replaces the door's
+// rect height, which is left at 0), v how fast the door is swinging, grab whether it is held.
+// pivot and lever are its meshes, set when the scene is built.
+export interface MyDoor extends FlatDoor{v:number,grab:boolean,pivot:Group,lever:Group}
+export const FLATDOORS:FlatDoor[]=[];
+function wallWin(z:number,x:number,y:number,w:number,h:number,starts:number[],len:number){
+  const rec:WinWall={x,y,w,h,wins:[],len};FL[z].walls.push(rec);
   const horiz=w>h,a=horiz?x:y,b=a+(horiz?w:h);let c=a;
-  const piece=(p,q)=>{if(q-p>.01)horiz?box(p,y,q-p,h,z-.5,z+.5,true):box(x,p,w,q-p,z-.5,z+.5,true)};
+  const piece=(p:number,q:number)=>{if(q-p>.01)horiz?box(p,y,q-p,h,z-.5,z+.5,true):box(x,p,w,q-p,z-.5,z+.5,true)};
   for(const v of starts){if(v<a||v+len>b)continue;
     rec.wins.push(v);piece(c,v);horiz?box(v,y,len,h,z-.5,z+.5):box(x,v,w,len,z-.5,z+.5);c=v+len}
   piece(c,b);
 }
 for(let z=0;z<=TTOP;z++){
-  const wx=[],wy=[];for(let v=23.5;v<44;v+=3)wx.push(v);for(let v=45.5;v<64;v+=3)wy.push(v);
+  const wx:number[]=[],wy:number[]=[];for(let v=23.5;v<44;v+=3)wx.push(v);for(let v=45.5;v<64;v+=3)wy.push(v);
   wallWin(z,22,44,24,.3,wx,1.8);wallWin(z,22,44,.3,22,wy,1.8);wallWin(z,45.7,44,.3,22,wy,1.8);
   if(z===0){wallWin(0,22,65.7,11,.3,wx,1.8);wallWin(0,35,65.7,11,.3,wx,1.8)}else wallWin(z,22,65.7,24,.3,wx,1.8);
   // corridor walls, leaving gaps for flat doors, the stair landings and the lift
@@ -29,7 +37,7 @@ for(let z=0;z<=TTOP;z++){
   fwall(z,29.8,44.3,.2,9.5);fwall(z,41,44.3,.2,9.5);
   fwall(z,30,50.4,11,.2);fwall(z,38.2,50.6,.2,.7);
   ffurn(z,30,44.3,11,6.1,'#2a2c31',{opq:1});       // service risers behind the core
-  const flats=[['01',25,53.8],['02',24.7,55.8],['03',30.6,55.8],['04',36.6,55.8],['05',42.4,55.8],['06',43,53.8]];
+  const flats:[string,number,number][]=[['01',25,53.8],['02',24.7,55.8],['03',30.6,55.8],['04',36.6,55.8],['05',42.4,55.8],['06',43,53.8]];
   for(const[id,x,y]of flats){
     if(z===0&&(id==='03'||id==='04'))continue;      // the lobby takes their place
     const d={z,x,y,w:1,h:.2,name:(z+1)+id,mine:z===MYFLAT.z&&id===MYFLAT.id,open:0};
@@ -39,7 +47,7 @@ for(let z=0;z<=TTOP;z++){
   if(z<TTOP)z%2===0?addStair(31.6,50.8,4.8,1.3,'E',z,z+1):addStair(31.6,52.3,4.8,1.3,'W',z,z+1);
 }
 ffurn(0,31.6,52.3,4.8,1.3,'#3a3d44',{opq:1});ffurn(TTOP,31.6,52.3,4.8,1.3,'#3a3d44',{opq:1});
-export const MYDOOR=FLATDOORS.find(d=>d.mine);MYDOOR.h=0;MYDOOR.v=0;MYDOOR.grab=false;
+export const MYDOOR=FLATDOORS.find(d=>d.mine) as MyDoor;MYDOOR.h=0;MYDOOR.v=0;MYDOOR.grab=false;
 // lobby
 ffurn(0,28.3,57,.45,4.2,'#9aa0a8');ffurn(0,38.7,57.5,1,3.2,'#5d6f86');
 for(const[x,y]of[[32.4,65],[35.6,65],[28.9,65],[39.4,65]])fround(0,x,y,.38,'#4f8a55');

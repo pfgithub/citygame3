@@ -1,14 +1,17 @@
 import { A } from './arena';
 import { CAM, P, S } from '../state';
-import { angDiff, clamp, rr } from '../util';
+import { angDiff, clamp } from '../util';
+import type { Mesh, Group } from 'three';
 
 // A small launch tied up at the harbour pier. Step aboard through the gap in the rail, hold
 // the mouse button to take the tiller: sideways steers, forward and back is the throttle.
-export const BOAT={x:624.7,y:48.5,a:-Math.PI/2,v:0,rud:0,thr:0,docked:true,held:false};
-export const BERTH={x:624.7,y:48.5,a:-Math.PI/2},WATER={x0:569,y0:24,x1:671,y1:56.5},PIER={x:617,y:42,w:6,h:18};
-export function boatPlace(){const b=BOAT,q=P.boat,c=Math.cos(b.a),s=Math.sin(b.a);P.x=b.x+q.lx*c-q.ly*s;P.y=b.y+q.lx*s+q.ly*c}
-export function tiller(dx,dy){BOAT.rud=clamp(BOAT.rud+dx*.003,-.7,.7);BOAT.thr=clamp(BOAT.thr-dy*.003,-.4,1)}
-export function updateBoat(dt){
+// rud: the tiller, thr: the throttle; held: someone has hold of the tiller. Its meshes (g, and
+// the tiller) are set when the scene is built.
+export const BOAT={x:624.7,y:48.5,a:-Math.PI/2,v:0,rud:0,thr:0,docked:true,held:false} as {x:number,y:number,a:number,v:number,rud:number,thr:number,docked:boolean,held:boolean,g:Group,tiller:Mesh};
+const BERTH={x:624.7,y:48.5,a:-Math.PI/2},WATER={x0:569,y0:24,x1:671,y1:56.5},PIER={x:617,y:42,w:6,h:18};
+export function boatPlace(){const b=BOAT,q=P.boat!,c=Math.cos(b.a),s=Math.sin(b.a);P.x=b.x+q.lx*c-q.ly*s;P.y=b.y+q.lx*s+q.ly*c}
+export function tiller(dx:number,dy:number){BOAT.rud=clamp(BOAT.rud+dx*.003,-.7,.7);BOAT.thr=clamp(BOAT.thr-dy*.003,-.4,1)}
+export function updateBoat(dt:number){
   const b=BOAT,ox=P.x,oy=P.y;
   if(!P.boat&&b.docked&&P.z===0&&P.x>623.45&&P.x<626&&P.y>45.8&&P.y<51.2){ // stepped off the pier onto the deck
     const c=Math.cos(b.a),s=Math.sin(b.a),dx=P.x-b.x,dy=P.y-b.y;P.boat={lx:dx*c+dy*s,ly:-dx*s+dy*c}}

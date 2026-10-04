@@ -5,17 +5,17 @@ import { OUTG } from './sceneCity';
 import { A } from '../sim/arena';
 import { P, S } from '../state';
 
-export const ARG=new THREE.Group();OUTG.add(ARG);
-export const ICO=new THREE.IcosahedronGeometry(1,1),DISC=new THREE.CylinderGeometry(1,1,1,16);
-export function stick(m,x1,z1,x2,z2,y,th){const dx=x2-x1,dz=z2-z1,L=Math.hypot(dx,dz);m.visible=L>.01;
+const ARG=new THREE.Group();OUTG.add(ARG);
+const ICO=new THREE.IcosahedronGeometry(1,1),DISC=new THREE.CylinderGeometry(1,1,1,16);
+function stick(m:THREE.Object3D,x1:number,z1:number,x2:number,z2:number,y:number,th:number){const dx=x2-x1,dz=z2-z1,L=Math.hypot(dx,dz);m.visible=L>.01;
   m.position.set((x1+x2)/2,y,(z1+z2)/2);m.scale.set(Math.max(L,.001),th,th);m.rotation.y=-Math.atan2(dz,dx)}
-export const pool=(n,mk)=>Array.from({length:n},()=>{const m=mk();m.visible=false;ARG.add(m);return m});
-export const lam=c=>new THREE.MeshLambertMaterial({color:c}),bas=(c,o)=>new THREE.MeshBasicMaterial({color:c,transparent:o!==undefined,opacity:o===undefined?1:o,depthWrite:o===undefined});
-export const AV={
+const pool=<T extends THREE.Object3D>(n:number,mk:()=>T)=>Array.from({length:n},()=>{const m=mk();m.visible=false;ARG.add(m);return m});
+const lam=(c:string)=>new THREE.MeshLambertMaterial({color:c}),bas=(c:string,o?:number)=>new THREE.MeshBasicMaterial({color:c,transparent:o!==undefined,opacity:o===undefined?1:o,depthWrite:o===undefined});
+const AV={
   body:A.creatures.map(()=>{const m=new THREE.Mesh(ICO,new THREE.MeshLambertMaterial({flatShading:true}));ARG.add(m);return m}),
   bar:pool(A.creatures.length,()=>new THREE.Mesh(UNIT,bas('#e5484d'))),
   arrow:pool(12,()=>new THREE.Mesh(UNIT,lam('#6b4a32'))),
-  pud:pool(60,()=>new THREE.Mesh(DISC,lam('#3b2f25'))),
+  pud:pool(60,()=>new THREE.Mesh<THREE.CylinderGeometry,THREE.Material>(DISC,lam('#3b2f25'))),
   tracer:pool(7,()=>new THREE.Mesh(UNIT,bas('#ffe9a8',.8))),
   boom:pool(1,()=>new THREE.Mesh(UNIT,lam('#c98a3a')))[0],
   well:pool(1,()=>new THREE.Mesh(DISC,bas('#2a1f45',.75)))[0],

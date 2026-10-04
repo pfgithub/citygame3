@@ -13,11 +13,11 @@ import { updateTrains } from './trains';
 import { CAM, P, S, input, keys } from '../state';
 import { angDiff, clamp, inRect, lerp } from '../util';
 import { BUILDINGS } from '../world/buildings';
-import { LIFTS, STAIRS, stairT } from '../world/floors';
+import { type Lift, LIFTS, STAIRS, stairT } from '../world/floors';
 import { surfaceAt } from '../world/surfaces';
 import { MYDOOR } from '../world/tower';
 
-export function updateZ(){
+function updateZ(){
   if(P.lift){if(!inRect(P.x,P.y,P.lift))P.lift=null;else{P.z=P.lift.z;return}}
   for(const l of LIFTS)if(inRect(P.x,P.y,l)&&Math.abs(P.z-l.z)<.01){P.lift=l;P.z=l.z;return}
   for(const s of STAIRS){
@@ -26,7 +26,7 @@ export function updateZ(){
   }
   P.z=Math.round(P.z);
 }
-export function updateLift(l,dt){
+function updateLift(l:Lift,dt:number){
   const d=l.dr,inside=P.lift===l,sameZ=Math.abs(P.z-l.z)<.01;
   const blocked=sameZ&&P.x>d.x-R-.05&&P.x<d.x+d.w+R+.05&&Math.abs(P.y-(d.y+.1))<R+.25;
   const f=Math.round(P.z);
@@ -55,7 +55,7 @@ export function updateLift(l,dt){
   }
   if(inside)P.z=l.z;
 }
-export function updateIndoor(dt){
+function updateIndoor(dt:number){
   // Everything here is a function of where the player stands, not of time.
   S.bIn=0;
   for(const b of BUILDINGS){const d=Math.hypot(P.x-b.door.x,P.y-b.door.y);
@@ -64,7 +64,7 @@ export function updateIndoor(dt){
   const target=P.car?VIEW_OUT*(1.1+.5*Math.min(1,carSpeed(P.car)/20)):lerp(VIEW_OUT,VIEW_IN,S.indoor);   // driving: pull back, more at speed
   S.view+=(target-S.view)*(1-Math.exp(-dt*12));
 }
-export function tick(dt){
+export function tick(dt:number){
   S.time+=dt;autoSave();
   updateTrains(dt);updatePeds(dt);updateTraffic(dt);buildDyn();
   // You are the mouse pointer: it moves across the world exactly as far as the

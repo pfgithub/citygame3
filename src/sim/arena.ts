@@ -1,43 +1,63 @@
 import { R, REGIONS, regionAt } from '../constants';
 import { CAM, P, S } from '../state';
 import { angDiff, clamp, lerp, mulberry32, segDist } from '../util';
-import { FIELD, WEAPONS } from '../world/arena';
+import { FIELD, WEAPONS, type Weapon } from '../world/arena';
+import type { Mesh, MeshBasicMaterial, ShapeGeometry } from 'three';
+import type { Pt } from '../types';
+
+// A creature: sp is its top speed, max its full health; dead counts down to its respawn, flash
+// is how long it shows a hit, cd how long until it can be hit again by the same swing, atk how
+// long until it can bite again. wx, wy: where it is wandering to, wt how long it keeps at it.
+export interface Creature extends Pt{vx:number,vy:number,r:number,max:number,sp:number,col:string,hp:number,dead:number,
+  flash:number,cd:number,atk:number,wx:number,wy:number,wt:number}
+type Moving=Pt&{px:number,py:number};   // a point that remembers where it was last tick
+// The fight: whatever the current weapon (cur) has in play, the player's health (hp) and the
+// shove they are getting (kx, ky), and the mouse buttons (down, plus click / rclick this tick).
+// pv: the player's velocity; ease: the camera gliding back after a missile; cdw: weapon cooldown;
+// msg: how long the knocked-out message stays up.
+export interface Arena{boom:{x:number,y:number,vx:number,vy:number,t:number}|null,whip:Moving[]|null,well:{x:number,y:number,t:number}|null,
+  shot:{x:number,y:number,a:number,t:number}|null,last:Pt|null,pv:Pt,shapes:{pts:Pt[],t:number,m?:Mesh<ShapeGeometry,MeshBasicMaterial>}[],
+  hp:number,kx:number,ky:number,msg:number,ease:number,cdw:number,sp:{dx:number,dy:number,len:number,a:number,tip:Pt|null,out:boolean}|null,
+  orbs:{x:number,y:number,vx:number,vy:number,fly:number,dead?:number}[],rclick:boolean,cur:Weapon|null,down:boolean,click:boolean,kills:number,
+  bow:{dx:number,dy:number,px:number,py:number}|null,ball:Moving|null,fuel:number,lastDrop:Pt|null,puddles:{x:number,y:number,t:number}[],
+  arrows:{x:number,y:number,vx:number,vy:number,life:number,dmg:number}[],missile:{x:number,y:number,a:number,want:number,life:number}|null,
+  blast:{x:number,y:number,t:number,r:number}|null,lasso:{pts:Pt[],len:number}|null,tip:Pt|null,creatures:Creature[],up?:boolean,crack?:number}
 
 // Top-down (mouse) mode only. Walking onto a pad takes that weapon.
-export const A={boom:null,whip:null,well:null,shot:null,last:null,pv:{x:0,y:0},shapes:[],hp:100,kx:0,ky:0,msg:0,ease:0,cdw:0,sp:null,orbs:[],rclick:false,cur:null,down:false,click:false,kills:0,bow:null,ball:null,fuel:1,lastDrop:null,puddles:[],arrows:[],missile:null,blast:null,lasso:null,tip:null,creatures:[]};
-export const crng=mulberry32(99);
-export const ROPE=50;                       // metres of lasso
-export function spawn(c){
+export const A:Arena={boom:null,whip:null,well:null,shot:null,last:null,pv:{x:0,y:0},shapes:[],hp:100,kx:0,ky:0,msg:0,ease:0,cdw:0,sp:null,orbs:[],rclick:false,cur:null,down:false,click:false,kills:0,bow:null,ball:null,fuel:1,lastDrop:null,puddles:[],arrows:[],missile:null,blast:null,lasso:null,tip:null,creatures:[]};
+const crng=mulberry32(99);
+const ROPE=50;                       // metres of lasso
+function spawn(c:Creature){
   const k=crng();
   Object.assign(c,k<.5?{r:.5,max:35,sp:4.2,col:'#7d4fb0'}:k<.85?{r:.75,max:70,sp:3.1,col:'#3f8f5a'}:{r:1.15,max:160,sp:2.1,col:'#b0453f'});
   do{c.x=lerp(FIELD.x0+2,FIELD.x1-2,crng());c.y=lerp(FIELD.y0+2,FIELD.y1-2,crng())}while(Math.hypot(c.x-P.x,c.y-P.y)<14);
   c.hp=c.max;c.vx=c.vy=0;c.dead=0;c.flash=0;c.cd=0;c.atk=0;c.wx=c.x;c.wy=c.y;c.wt=0;
 }
-for(let i=0;i<14;i++){const c={};spawn(c);A.creatures.push(c)}
-export function hurt(c,d,kx=0,ky=0){
+for(let i=0;i<14;i++){const c={} as Creature;spawn(c);A.creatures.push(c)}
+function hurt(c:Creature,d:number,kx=0,ky=0){
   if(c.dead)return;
   const k=Math.hypot(kx,ky);if(k>24){kx*=24/k;ky*=24/k}
   c.hp-=d;c.flash=.18;c.vx+=kx;c.vy+=ky;
   if(c.hp<=0){c.dead=2.5;A.kills++}
 }
-export function inPoly(x,y,pts){let ins=false;
+function inPoly(x:number,y:number,pts:Pt[]){let ins=false;
   for(let i=0,j=pts.length-1;i<pts.length;j=i++){const a=pts[i],b=pts[j];
     if((a.y>y)!==(b.y>y)&&x<(b.x-a.x)*(y-a.y)/(b.y-a.y)+a.x)ins=!ins}
   return ins}
 // Where two rope segments cross, or null.
-export function segX(a,b,c,d){
+function segX(a:Pt,b:Pt,c:Pt,d:Pt){
   const rx=b.x-a.x,ry=b.y-a.y,sx=d.x-c.x,sy=d.y-c.y,den=rx*sy-ry*sx;if(Math.abs(den)<1e-9)return null;
   const t=((c.x-a.x)*sy-(c.y-a.y)*sx)/den,u=((c.x-a.x)*ry-(c.y-a.y)*rx)/den;
   return t>1e-6&&t<=1&&u>=0&&u<=1?{x:a.x+rx*t,y:a.y+ry*t}:null;
 }
 // The closed loops in a rope path. Walks the path; each time it crosses itself the loop
 // just completed is cut off and the walk carries on from the crossing.
-export function ropeLoops(pts){
+function ropeLoops(pts:Pt[]){
   // an end that stops just short of the rope still counts as closing the loop
   const e=pts[pts.length-1];let near=-1,nd=1.6;
   for(let i=0;i<pts.length-8;i++){const d=Math.hypot(pts[i].x-e.x,pts[i].y-e.y);if(d<nd){nd=d;near=i}}
   if(near>=0)pts=[...pts,pts[near],pts[near+1]||pts[near]];
-  const loops=[],w=[pts[0]];
+  const loops:Pt[][]=[],w=[pts[0]];
   for(let k=1;k<pts.length;k++){const q=pts[k];
     for(let again=true;again;){again=false;const a=w[w.length-1];
       for(let i=w.length-3;i>=0;i--){const X=segX(a,q,w[i],w[i+1]);
@@ -47,17 +67,17 @@ export function ropeLoops(pts){
     w.push(q)}
   return loops;
 }
-export function equip(w){A.cur=w;A.bow=A.missile=A.lasso=A.tip=null;A.sp=A.boom=A.well=null;
+export function equip(w:Weapon|null){A.cur=w;A.bow=A.missile=A.lasso=A.tip=null;A.sp=A.boom=A.well=null;
   A.whip=w&&w.id==='whip'?Array.from({length:9},()=>({x:P.x,y:P.y,px:P.x,py:P.y})):null;A.ball=w&&w.id==='ball'?{x:P.x,y:P.y,px:P.x,py:P.y}:null}
 export const inArena=()=>!S.fp&&P.z===0&&regionAt(P.x)===2;
 // While the bow is drawn or a missile is flying, the mouse drives that instead of the player.
 export const mouseCaptured=()=>inArena()&&!!(A.bow||A.missile||A.sp);
-export function explode(){
-  const m=A.missile;A.missile=null;A.blast={x:m.x,y:m.y,t:0,r:4.5};A.ease=1.3;   // the camera drifts back to the player
+function explode(){
+  const m=A.missile!;A.missile=null;A.blast={x:m.x,y:m.y,t:0,r:4.5};A.ease=1.3;   // the camera drifts back to the player
   for(const c of A.creatures){const dx=c.x-m.x,dy=c.y-m.y,d=Math.hypot(dx,dy);
     if(d<4.5)hurt(c,95*(1-d/4.5*.6),dx/(d||1)*20,dy/(d||1)*20)}
 }
-export function updateArena(dt,mx,my){
+export function updateArena(dt:number,mx:number,my:number){
   const click=A.click,rclick=A.rclick;A.click=A.rclick=false;
   if(regionAt(P.x)!==2)return;
   if(!inArena()){if(A.cur)equip(null);A.kx=A.ky=0;return}
@@ -81,7 +101,7 @@ export function updateArena(dt,mx,my){
     // A heavy weight on a chain. The chain can swing it round freely, but it only gains speed
     // slowly however hard it is pulled, and the ground scrubs speed off. Whatever the ball will
     // not give, the player has to: you cannot outrun it, and its momentum drags you about.
-    const b=A.ball,L=2.4,GAIN=10*dt*dt,FRIC=4*dt*dt,HAUL=9*dt*dt;
+    const b=A.ball!,L=2.4,GAIN=10*dt*dt,FRIC=4*dt*dt,HAUL=9*dt*dt;
     let sx=b.x-b.px,sy=b.y-b.py;const s0=Math.hypot(sx,sy),s1=Math.min(1.2,Math.max(0,s0-FRIC));
     if(s0>1e-9){sx*=s1/s0;sy*=s1/s0}
     const ox=b.x,oy=b.y;b.px=ox;b.py=oy;b.x+=sx;b.y+=sy;
@@ -134,7 +154,7 @@ export function updateArena(dt,mx,my){
   }else if(id==='whip'){
     // A light rope pinned to the hand. Only the very tip hurts, and only when it is really moving,
     // which is what a sharp change of direction does to it.
-    const w=A.whip,SEG=.45;
+    const w=A.whip!,SEG=.45;
     for(let i=1;i<w.length;i++){const n=w[i];let sx=(n.x-n.px)*.97,sy=(n.y-n.py)*.97;const sl=Math.hypot(sx,sy);if(sl>1.4){sx*=1.4/sl;sy*=1.4/sl}
       n.px=n.x;n.py=n.y;n.x+=sx;n.y+=sy}
     for(let it=0;it<6;it++){w[0].x=P.x;w[0].y=P.y;
@@ -234,4 +254,4 @@ export function updateArena(dt,mx,my){
     for(const c of A.creatures)if(!c.dead&&c.y>55){c.y-=30}
   }
 }
-export function hurt2(c,d){c.hp-=d;if(c.hp<=0&&!c.dead){c.dead=2.5;A.kills++}}   // damage over time: no flinch
+function hurt2(c:Creature,d:number){c.hp-=d;if(c.hp<=0&&!c.dead){c.dead=2.5;A.kills++}}   // damage over time: no flinch

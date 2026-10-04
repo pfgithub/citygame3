@@ -9,7 +9,7 @@ import { P, S } from '../state';
 import { BUILDINGS } from '../world/buildings';
 import { LIFTS, STAIRS } from '../world/floors';
 import { OFFICE } from '../world/office';
-import { FLATDOORS, MYFLAT, TTOP } from '../world/tower';
+import { FLATDOORS, MYDOOR, MYFLAT, TTOP } from '../world/tower';
 
 // ---- enterable buildings: a closed exterior, and one open-topped group per storey
 for(const b of BUILDINGS){
@@ -49,10 +49,10 @@ for(const l of LIFTS){
     const tex=new THREE.CanvasTexture(cv2),pl=new THREE.Mesh(new THREE.PlaneGeometry(pn.pw,pn.ph),new THREE.MeshBasicMaterial({map:tex}));
     pl.rotation.y=-Math.PI/2;pl.position.set(l.x+l.w-.145,pn.ch,pn.cy);l.car.add(pl);
     l.paintPanel=()=>{const key=l.target+'|'+Math.round(l.z)+'|'+(P.lift===l?S.pendingBtn:'');if(key===l.panelKey)return;l.panelKey=key;
-      const g=cv2.getContext('2d');g.fillStyle='#3a3d44';g.fillRect(0,0,cv2.width,cv2.height);
+      const g=cv2.getContext('2d')!;g.fillStyle='#3a3d44';g.fillRect(0,0,cv2.width,cv2.height);
       for(let i=0;i<pn.n;i++){const f=l.zmin+i,x=(i%pn.cols+.5)*64,y=cv2.height-(Math.floor(i/pn.cols)+.5)*54,on=l.target===f||(P.lift===l&&S.pendingBtn===f),here=Math.round(l.z)===f&&l.target===null;
         g.fillStyle=on?'#f0b63a':here?'#cfd3d9':'#1c1e22';g.beginPath();g.arc(x,y,21,0,7);g.fill();g.strokeStyle='#cfd3d9';g.lineWidth=3;g.stroke();
-        g.fillStyle=on||here?'#1c1e22':'#f2f3f5';g.font='600 24px system-ui,sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(f+1,x,y+1)}
+        g.fillStyle=on||here?'#1c1e22':'#f2f3f5';g.font='600 24px system-ui,sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(String(f+1),x,y+1)}
       tex.needsUpdate=true};
     const hb=new MB();for(let z=l.zmin;z<=l.zmax;z++){const x=l.dr.x+l.dr.w+.32,y=l.y+2.4;hb.box(x-.07,y,.14,.025,Y(z)+1,Y(z)+1.2,'#3a3d44');hb.box(x-.035,y+.02,.07,.02,Y(z)+1.065,Y(z)+1.135,'#f0b63a')}
     scene.add(l.hall=hb.mesh())}
@@ -67,17 +67,17 @@ for(const l of LIFTS){
     if(d.mine){const y=Y(d.z)+.03,mb=new MB(),hb=new MB();
       mb.box(0,-.04,d.w,.08,0,2.1,'#3f9a63','#2f7a4d');
       for(const sz of[-.1,.06])hb.box(-.13,sz,.15,.04,-.02,.02,'#d9c27a');      // lever handles, one per face
-      d.pivot=new THREE.Group();d.pivot.position.set(d.x,y,d.y+.1);d.pivot.add(mb.mesh());
-      d.lever=new THREE.Group();d.lever.position.set(HANDLE+.06,1,0);d.lever.add(hb.mesh());d.pivot.add(d.lever);g.add(d.pivot)}
+      MYDOOR.pivot=new THREE.Group();MYDOOR.pivot.position.set(d.x,y,d.y+.1);MYDOOR.pivot.add(mb.mesh());
+      MYDOOR.lever=new THREE.Group();MYDOOR.lever.position.set(HANDLE+.06,1,0);MYDOOR.lever.add(hb.mesh());MYDOOR.pivot.add(MYDOOR.lever);g.add(MYDOOR.pivot)}
     else{const mb=new MB();mb.box(d.x,d.y+.04,d.w,d.h-.08,Y(d.z)+.03,Y(d.z)+2.1,'#6b4a32','#54392a');g.add(mb.mesh())}}
 }
 
 // Lids over the flats, for the top-down view: other people's homes are never seen into, and
 // the player's own is covered until its door opens.
-export const TOPONLY=[];export let MYLID=null;
-{const b=BUILDINGS[1],N=[['01',22.3,44.3,7.5,9.5],['06',41.2,44.3,4.5,9.5]],S=[['02',22.3,5.7],['03',28.2,5.8],['04',34.2,5.8],['05',40.2,5.5]];
+export const TOPONLY:THREE.Mesh[]=[];export let MYLID:THREE.Mesh<THREE.BoxGeometry,THREE.MeshLambertMaterial>;
+{const b=BUILDINGS[1],north:[string,number,number,number,number][]=[['01',22.3,44.3,7.5,9.5],['06',41.2,44.3,4.5,9.5]],south:[string,number,number][]=[['02',22.3,5.7],['03',28.2,5.8],['04',34.2,5.8],['05',40.2,5.5]];
   for(let z=0;z<=TTOP;z++){const mb=new MB(),y=Y(z)+WALL_H+.05;
-    for(const[id,x,yy,w,h]of[...N,...S.map(([id,x,w])=>[id,x,56,w,9.7])]){
+    for(const[id,x,yy,w,h]of[...north,...south.map(([id,x,w])=>[id,x,56,w,9.7] as [string,number,number,number,number])]){
       if(z===0&&(id==='03'||id==='04'))continue;
       if(z===MYFLAT.z&&id===MYFLAT.id){
         MYLID=new THREE.Mesh(UNIT,new THREE.MeshLambertMaterial({color:'#6c6f77',transparent:true}));

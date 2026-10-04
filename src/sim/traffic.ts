@@ -2,22 +2,28 @@ import { PEDS } from './peds';
 import { P, S } from '../state';
 import { clamp, mulberry32 } from '../util';
 import { CARC } from '../world/outdoors';
+import type { Mesh } from 'three';
+import type { Pt, Rect } from '../types';
 
 // The demo region ends in barriers across the sidewalks only; the roads run on through.
-export const BARRIERS=[[-.6,66,.6,4],[-.6,82,.6,4],[200,66,.6,4],[200,82,.6,4],[86,-.6,4,.6],[100,-.6,4,.6],[86,160,4,.6],[100,160,4,.6]];
+export const BARRIERS:[number,number,number,number][]=[[-.6,66,.6,4],[-.6,82,.6,4],[200,66,.6,4],[200,82,.6,4],[86,-.6,4,.6],[100,-.6,4,.6],[86,160,4,.6],[100,160,4,.6]];
 // Four lanes through one signalled crossroads. `c` is the lane's centre line, `stop` where the
 // front of a car waits. Group 0 is the avenue, group 1 the cross street.
-export const LANES=[{ax:'x',dir:1,c:77.8,stop:85.4,sig:0,a:-60,b:558},{ax:'x',dir:-1,c:74.2,stop:104.6,sig:0,a:-60,b:558},
+export interface Lane{ax:'x'|'y',dir:number,c:number,stop:number,sig:number,a:number,b:number}
+export const LANES:Lane[]=[{ax:'x',dir:1,c:77.8,stop:85.4,sig:0,a:-60,b:558},{ax:'x',dir:-1,c:74.2,stop:104.6,sig:0,a:-60,b:558},
   {ax:'y',dir:1,c:92.5,stop:65.4,sig:1,a:-60,b:220},{ax:'y',dir:-1,c:97.5,stop:86.6,sig:1,a:-60,b:220}];
 export const SIG_T=26;
-export function sigState(g){const t=S.time%SIG_T;return g===0?(t<12?'g':t<14?'y':'r'):(t<15?'r':t<23?'g':t<25?'y':'r')}
-export const CARS=[];
-{const tr=mulberry32(21);LANES.forEach((ln,li)=>{const n=ln.ax==='x'?7:3;
-  for(let i=0;i<n;i++)CARS.push({ln,s:ln.a+(i+tr()*.5)*(ln.b-ln.a)/n,v:8,len:4.3+tr()*.5,col:CARC[Math.floor(tr()*CARC.length)]})})}
-export const carRect=c=>c.ln.ax==='x'?{x:c.s-c.len/2,y:c.ln.c-.92,w:c.len,h:1.84}:{x:c.ln.c-.92,y:c.s-c.len/2,w:1.84,h:c.len};
+export function sigState(g:number){const t=S.time%SIG_T;return g===0?(t<12?'g':t<14?'y':'r'):(t<15?'r':t<23?'g':t<25?'y':'r')}
+// A car in traffic: s is how far along its lane, v its speed, turn how much of the U-turn at the
+// harbour end is left. g is its mesh, set when the scene is built.
+export interface TCar{ln:Lane,s:number,v:number,len:number,col:string,turn:number,g:Mesh}
+export const CARS:TCar[]=[];
+{const tr=mulberry32(21);LANES.forEach(ln=>{const n=ln.ax==='x'?7:3;
+  for(let i=0;i<n;i++)CARS.push({ln,s:ln.a+(i+tr()*.5)*(ln.b-ln.a)/n,v:8,len:4.3+tr()*.5,col:CARC[Math.floor(tr()*CARC.length)],turn:0} as TCar)})}
+export const carRect=(c:TCar):Rect=>c.ln.ax==='x'?{x:c.s-c.len/2,y:c.ln.c-.92,w:c.len,h:1.84}:{x:c.ln.c-.92,y:c.s-c.len/2,w:1.84,h:c.len};
 // Things a driver brakes for besides lights and the car in front: [x,y] spots on the road.
-export function roadUsers(){const u=[];if(P.z===0&&P.x<700)u.push(P);if(typeof PEDS!=='undefined')for(const q of PEDS)if(q.on)u.push(q);return u}
-export function updateTraffic(dt){
+function roadUsers(){const u:Pt[]=[];if(P.z===0&&P.x<700)u.push(P);for(const q of PEDS)if(q.on)u.push(q);return u}
+export function updateTraffic(dt:number){
   const users=roadUsers();
   for(const c of CARS){const ln=c.ln,d=ln.dir,front=c.s+d*c.len/2;
     let free=1e9;                                                       // clear road ahead of the bumper, metres

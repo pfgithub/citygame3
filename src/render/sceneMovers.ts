@@ -6,7 +6,6 @@ import { BOAT } from '../sim/boat';
 import { DCARS, DOOR_L, HINGE } from '../sim/driving';
 import { PEDS } from '../sim/peds';
 import { CARS } from '../sim/traffic';
-import { lamp } from '../world/outdoors';
 import { GATES, STATIONS } from '../world/subway';
 
 // ticket gate arms: hinged on the post, pushed aside by whoever walks through

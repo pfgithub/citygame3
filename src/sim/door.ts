@@ -20,12 +20,12 @@ export function aimingAtDoor(){
 }
 // While the door is held: up/down works the lever, sideways leans on the door. The lever has
 // to be down to unlatch a shut door; once it is ajar the lever no longer matters.
-export function doorMouse(dx,dy){
+export function doorMouse(dx:number,dy:number){
   const d=MYDOOR,side=P.y<d.y+.1?1:-1;                 // from inside the flat the door comes towards you instead
   d.h=clamp(d.h+dy*.006,0,1);
   if(d.open>0||d.h>=.85)d.v+=clamp(dx*.004,-.05,.05)*side;       // a heavy door: the hand can only lean on it, speed has to build
 }
-export function updateMyDoor(dt){
+export function updateMyDoor(dt:number){
   const d=MYDOOR;
   if(!S.fp){d.grab=false;
     const near=Math.abs(P.z-d.z)<.01&&Math.hypot(P.x-(d.x+.5),P.y-(d.y+.1))<1.5;

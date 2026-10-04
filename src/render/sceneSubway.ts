@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { LH, Y } from '../constants';
 import { CEIL, GLASS, GLOW, MB, art, dynBox, fpAdd, levelParts, shade, slab } from './mesh';
 import { drawConcourse, drawPlatform } from './paint';
-import { cv, scene } from './renderer';
+import { scene } from './renderer';
 import { clamp, lerp } from '../util';
 import { CONC, CROSS, STATIONS, TDOORS, TL, TRACKY, TRAINS, TW, trainParts } from '../world/subway';
 
@@ -37,7 +37,7 @@ for(const st of STATIONS){
   for(const cv of caves){const r={x:cv.x0,y:106.8,w:cv.x1-cv.x0,h:13.4};
     TUNNEL.add(slab(r,[],y,art(r.x,r.y,r.w,r.h,12,g=>{
       g.fillStyle='#24262b';g.fillRect(r.x,r.y,r.w,r.h);
-      const yc=xc=>{const t=clamp((xc-TL/2-cv.c.a)/(cv.c.b-cv.c.a));return lerp(TRACKY[1],TRACKY[0],t*t*(3-2*t))+TW/2};
+      const yc=(xc:number)=>{const t=clamp((xc-TL/2-cv.c.a)/(cv.c.b-cv.c.a));return lerp(TRACKY[1],TRACKY[0],t*t*(3-2*t))+TW/2};
       g.strokeStyle='#4a4038';g.lineWidth=.22;g.beginPath();for(let x=r.x;x<r.x+r.w;x+=.7){g.moveTo(x,yc(x)-1.2);g.lineTo(x,yc(x)+1.2)}g.stroke();
       g.strokeStyle='#9aa0a8';g.lineWidth=.08;for(const o of[-.72,.72]){g.beginPath();for(let x=r.x;x<=r.x+r.w;x+=.5)g.lineTo(x,yc(x)+o);g.stroke()}})));
     fpAdd(TUNNEL,slab(r,[],Y(-1)-.35,CEIL))}

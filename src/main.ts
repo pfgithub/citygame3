@@ -35,7 +35,8 @@ import { MYDOOR, TLIFT } from './world/tower';
 
 // ---------------------------------------------------------------- loop
 let last=performance.now();
-function frame(now){const dt=clamp((now-last)/1000,0,.05);last=now;tick(dt);render();requestAnimationFrame(frame)}
+function frame(now:number){const dt=clamp((now-last)/1000,0,.05);last=now;tick(dt);render();requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
 // For scripted tests.
-window.G={P,A,DCARS,exitCar,enterCar,PEDS,CARS,BOAT,resetSave,MYDOOR,CHAIRS,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:f=>{S.pendingBtn=f},get view(){return S.view},get bIn(){return S.bIn}};
+declare global{interface Window{G:unknown}}
+window.G={P,A,DCARS,exitCar,enterCar,PEDS,CARS,BOAT,resetSave,MYDOOR,CHAIRS,STOPS,WEAPONS,setFP,keys,CAR,TLIFT,TRAINS,input,tick,render,press:(f:number)=>{S.pendingBtn=f},get view(){return S.view},get bIn(){return S.bIn}};

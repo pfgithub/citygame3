@@ -1,22 +1,39 @@
-import { Y } from '../constants';
+import type { Mesh } from 'three';
+import type { Building } from './buildings';
+import type { Disc, Rect } from '../types';
 import { box, circ } from './colliders';
 
-export const FL={};
-for(let z=-2;z<=9;z++)FL[z]={z,walls:[],furn:[],wins:[]};
-export function fwall(z,x,y,w,h,opq=true){FL[z].walls.push({x,y,w,h});box(x,y,w,h,z-.5,z+.5,opq)}
-export function ffurn(z,x,y,w,h,color,o={}){FL[z].furn.push({x,y,w,h,color,...o});if(!o.ghost)box(x,y,w,h,z-.5,z+.5,!!o.opq)}
-export function fround(z,cx,cy,r,color,o={}){FL[z].furn.push({cx,cy,r,color,...o});if(!o.ghost)circ(cx,cy,r,z-.5,z+.5)}
+// Walls with windows keep where the panes start along them, and how long each is.
+export interface PlainWall extends Rect{wins?:undefined}
+export interface WinWall extends Rect{wins:number[],len:number}
+export type Wall=PlainWall|WinWall;
+// ghost: not solid (chairs), opq: blocks line of sight, rad: corner radius, turn: a turnstile post.
+export interface FurnOpts{ghost?:number,opq?:number,rad?:number,turn?:number}
+export interface RectFurn extends Rect,FurnOpts{color:string,r?:undefined}
+export interface DiscFurn extends Disc,FurnOpts{color:string}
+export type Furn=RectFurn|DiscFurn;
+export interface Floor{z:number,walls:Wall[],furn:Furn[]}
+
+export const FL:Record<number,Floor>={};
+for(let z=-2;z<=9;z++)FL[z]={z,walls:[],furn:[]};
+export function fwall(z:number,x:number,y:number,w:number,h:number,opq=true){FL[z].walls.push({x,y,w,h});box(x,y,w,h,z-.5,z+.5,opq)}
+export function ffurn(z:number,x:number,y:number,w:number,h:number,color:string,o:FurnOpts={}){FL[z].furn.push({x,y,w,h,color,...o});if(!o.ghost)box(x,y,w,h,z-.5,z+.5,!!o.opq)}
+export function fround(z:number,cx:number,cy:number,r:number,color:string,o:FurnOpts={}){FL[z].furn.push({cx,cy,r,color,...o});if(!o.ghost)circ(cx,cy,r,z-.5,z+.5)}
 
 // Stairs: a rectangle; dir is the direction of ascent. The player's z is a pure
 // function of how far along the rectangle they are standing.
-export const STAIRS=[];
-export function addStair(x,y,w,h,dir,zl,zh){
-  const s={x,y,w,h,dir,zl,zh,sides:[]};STAIRS.push(s);
+export type Dir='N'|'S'|'E'|'W';
+type Box4=[number,number,number,number];
+export interface Stair extends Rect{dir:Dir,zl:number,zh:number,sides:Rect[],rail:Box4,
+  owner:Building|null,low:Mesh,high:Mesh}   // (these three are filled in when the scene is built)
+export const STAIRS:Stair[]=[];
+export function addStair(x:number,y:number,w:number,h:number,dir:Dir,zl:number,zh:number){
+  const s={x,y,w,h,dir,zl,zh,sides:[]} as unknown as Stair;STAIRS.push(s);
   const t=.2,vert=dir==='N'||dir==='S';
-  const side=(X,Y,Wd,Hd)=>{s.sides.push({x:X,y:Y,w:Wd,h:Hd});box(X,Y,Wd,Hd,zl-.5,zh+.5,true)};
+  const side=(X:number,Y:number,Wd:number,Hd:number)=>{s.sides.push({x:X,y:Y,w:Wd,h:Hd});box(X,Y,Wd,Hd,zl-.5,zh+.5,true)};
   if(vert){side(x-t,y-t,t,h+2*t);side(x+w,y-t,t,h+2*t)}else{side(x-t,y-t,w+2*t,t);side(x-t,y+h,w+2*t,t)}
-  const ends={N:[x,y-t,w,t],S:[x,y+h,w,t],W:[x-t,y,t,h],E:[x+w,y,t,h]};
-  const opp={N:'S',S:'N',E:'W',W:'E'};
+  const ends:Record<Dir,Box4>={N:[x,y-t,w,t],S:[x,y+h,w,t],W:[x-t,y,t,h],E:[x+w,y,t,h]};
+  const opp:Record<Dir,Dir>={N:'S',S:'N',E:'W',W:'E'};
   // The ends block movement and sight from the level that can't use them, but
   // are not drawn: from on the stairs they would look like a wall across the exit.
   box(...ends[dir],zl-.5,zl+.5,true,0);        // top end, for whoever is on the lower level
@@ -24,14 +41,20 @@ export function addStair(x,y,w,h,dir,zl,zh){
   s.rail=ends[opp[dir]];
   return s;
 }
-export function stairT(s,px,py){switch(s.dir){
+export function stairT(s:Stair,px:number,py:number){switch(s.dir){
   case'N':return(s.y+s.h-py)/s.h;case'S':return(py-s.y)/s.h;
   case'W':return(s.x+s.w-px)/s.w;default:return(px-s.x)/s.w}}
 
 // Lifts: a 2.2 m car whose door faces south. `door` is how far open it is (0..1).
-export const LIFTS=[];
-export function addLift(x,y,zmin,zmax){
-  const l={x,y,w:2.2,h:2.2,dr:{x:x+.5,y:y+2.2,w:1.2,h:.2},call:{x:x-.7,y:y+2.4,w:3.6,h:3.2},zmin,zmax,z:zmin,door:0,target:null,src:null,moving:false,want:null,openT:0};
+// `target` is the floor it is heading for, and `src` who sent it there; `want` a floor
+// whose hall button was pressed (first person) and `openT` how long to hold the doors.
+export interface Lift extends Rect{dr:Rect,call:Rect,zmin:number,zmax:number,z:number,door:number,
+  target:number|null,src:'btn'|'call'|null,moving:boolean,want:number|null,openT:number,
+  // filled in once the buildings and the scene are built
+  owner:Building,car:Mesh,hall:Mesh,doors:[Mesh,Mesh][],paintPanel:()=>void,panelKey?:string}
+export const LIFTS:Lift[]=[];
+export function addLift(x:number,y:number,zmin:number,zmax:number){
+  const l={x,y,w:2.2,h:2.2,dr:{x:x+.5,y:y+2.2,w:1.2,h:.2},call:{x:x-.7,y:y+2.4,w:3.6,h:3.2},zmin,zmax,z:zmin,door:0,target:null,src:null,moving:false,want:null,openT:0} as unknown as Lift;
   for(let z=zmin;z<=zmax;z++){fwall(z,x-.2,y-.3,2.6,.3);fwall(z,x-.2,y-.3,.2,2.7);fwall(z,x+2.2,y-.3,.2,2.7);fwall(z,x-.2,y+2.2,.7,.2);fwall(z,x+1.7,y+2.2,.7,.2)}
   LIFTS.push(l);return l;
 }

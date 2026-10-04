@@ -5,14 +5,15 @@ import { scene } from './renderer';
 import { BARRIERS } from '../sim/traffic';
 import { P } from '../state';
 import { lerp, mulberry32 } from '../util';
-import { BOLLARDS, FOUNT, HPLANT, OUT } from '../world/outdoors';
+import { BOLLARDS, FOUNT, HPLANT, OUT, type Tree } from '../world/outdoors';
+import type { Art } from './mesh';
 import { LINE_D, STATIONS } from '../world/subway';
 import { RINKB } from '../world/surfaces';
 
 export const OUTG=new THREE.Group();scene.add(OUTG);
-export const CANOPIES=[];
+export const CANOPIES:{t:Tree,m:THREE.Mesh<THREE.IcosahedronGeometry,THREE.MeshLambertMaterial>}[]=[];
 {
-  const subHole=dx=>({x:dx+110,y:92,w:3,h:10});
+  const subHole=(dx:number)=>({x:dx+110,y:92,w:3,h:10});
   OUTG.add(slab({x:-90,y:-90,w:380,h:340},[subHole(0)],0,art(-90,-90,380,340,9,drawOutdoor)));
   OUTG.add(slab({x:290,y:-50,w:210,h:240},[],0,art(290,-50,210,240,9,drawOutdoor)));
   OUTG.add(slab({x:500,y:-50,w:240,h:200},[subHole(LINE_D)],0,art(500,-50,240,200,9,drawOutdoor)));
@@ -48,7 +49,7 @@ export const CANOPIES=[];
 // Sharp ground near the player. The whole-district ground pictures above are only about ten
 // pixels per metre; the nine 48 m squares around the player are repainted at 26 and laid just
 // over them, one new square per frame as the player moves.
-export const TILE=48,TILES=new Map();
+const TILE=48,TILES=new Map<string,{m:THREE.Mesh,a:Art,i:number,j:number}>();
 export function updateTiles(){
   if(P.z<-.9)return;
   const ci=Math.floor(P.x/TILE),cj=Math.floor(P.y/TILE);let made=false;

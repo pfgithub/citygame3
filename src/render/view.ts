@@ -9,7 +9,6 @@ import { MYLID, TOPONLY } from './sceneBuildings';
 import { CANOPIES, OUTG, updateTiles } from './sceneCity';
 import { SIGNALS } from './sceneMovers';
 import { TUNNEL } from './sceneSubway';
-import { A } from '../sim/arena';
 import { BOAT } from '../sim/boat';
 import { DOOR_SWING } from '../sim/door';
 import { DCARS, DOOR_SWING_CAR } from '../sim/driving';
@@ -18,28 +17,30 @@ import { CARS, LANES, carRect, sigState } from '../sim/traffic';
 import { gatesOpen } from '../sim/trains';
 import { CAM, P, S } from '../state';
 import { clamp, inRect, lerp } from '../util';
-import { BUILDINGS } from '../world/buildings';
-import { LIFTS, STAIRS } from '../world/floors';
+import { type Building, BUILDINGS } from '../world/buildings';
+import { type Lift, LIFTS, STAIRS } from '../world/floors';
 import { DOCK, EDGEY, GATES, STATIONS, TDOORS, TDW, TRAINS, TW, dockedDoor, sideOpen } from '../world/subway';
 import { MYDOOR, MYFLAT, MYRECT } from '../world/tower';
 
 // ---- what to show
 // A view is {k, b}: storey k of building b cut open (b=null: nothing cut open,
 // every building shown from outside), or {lift}: only the inside of a lift car.
-export function applyView(v){
-  const up=!v.lift&&v.k>=0;
+interface View{k?:number,b?:Building|null,lift?:Lift}
+function applyView(v:View){
+  const k=v.k as number;   // (undefined for a lift: every comparison with it is false)
+  const up=!v.lift&&k>=0;
   OUTG.visible=up;
-  for(const b of BUILDINGS){const mine=up&&v.b===b;b.ext.visible=up&&!mine;b.levels.forEach((g,i)=>g.visible=mine&&i<=v.k)}
+  for(const b of BUILDINGS){const mine=up&&v.b===b;b.ext.visible=up&&!mine;b.levels.forEach((g,i)=>g.visible=mine&&i<=k)}
   for(const s of STAIRS){
-    const on=v.lift?false:s.owner?up&&v.b===s.owner&&v.k>=s.zl:v.k===s.zl||v.k===s.zh||(up&&s.zh===0);
-    s.low.visible=on;s.high.visible=on&&v.k>=s.zh}
-  for(const l of LIFTS)l.car.visible=v.lift===l||(up&&v.b===l.owner&&Math.floor(l.z+.01)<=v.k);
-  for(const st of STATIONS){st.g1.visible=!v.lift&&v.k===-1;st.g2.visible=!v.lift&&v.k===-2}
-  TUNNEL.visible=!v.lift&&v.k===-2;for(const tr of TRAINS)tr.g.visible=TUNNEL.visible;
+    const on=v.lift?false:s.owner?up&&v.b===s.owner&&k>=s.zl:k===s.zl||k===s.zh||(up&&s.zh===0);
+    s.low.visible=on;s.high.visible=on&&k>=s.zh}
+  for(const l of LIFTS)l.car.visible=v.lift===l||(up&&v.b===l.owner&&Math.floor(l.z+.01)<=k);
+  for(const st of STATIONS){st.g1.visible=!v.lift&&k===-1;st.g2.visible=!v.lift&&k===-2}
+  TUNNEL.visible=!v.lift&&k===-2;for(const tr of TRAINS)tr.g.visible=TUNNEL.visible;
 }
 // The frame is a blend of two views, and the blend is driven by position:
 // height on a staircase, distance through a doorway, how far a lift's doors are open.
-export function views(){
+function views():[View,View|null,number]{
   const z=P.z;
   if(P.lift)return[{k:Math.round(z),b:P.lift.owner},{lift:P.lift},1-P.lift.door];
   const s=STAIRS.find(s=>z>s.zl&&z<s.zh&&inRect(P.x,P.y,s));   // the flight the player is actually on
@@ -50,8 +51,8 @@ export function views(){
   if(L>0)return[{k:L,b:BUILDINGS.find(b=>inRect(P.x,P.y,b.rect))||mine},null,0];
   return[{k:0,b:null},{k:0,b:mine},mine.bIn];
 }
-export let signT=0;
-export const SKY=new THREE.Color('#a9cfee'),NIGHT=new THREE.Color('#14161a');
+let signT=0;
+const SKY=new THREE.Color('#a9cfee'),NIGHT=new THREE.Color('#14161a');
 export function render(){
   // moving parts
   for(const l of LIFTS){l.car.position.y=Y(l.z)+.03;

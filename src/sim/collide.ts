@@ -9,9 +9,10 @@ import { COL } from '../world/colliders';
 import { LIFTS } from '../world/floors';
 import { DOCK, EDGEY, GATES, STATIONS, TDOORS, TDW, TL, TRAINS, dockedDoor, sideOpen, trainParts } from '../world/subway';
 import { MYDOOR } from '../world/tower';
+import type { Col } from '../types';
 
 // Colliders that move or open: rebuilt every tick.
-export const DYN=[];
+const DYN:Col[]=[];
 export function buildDyn(){
   DYN.length=0;
   // lift doors are shut unless the car is on the player's floor and open
@@ -32,7 +33,7 @@ export function buildDyn(){
     for(const o of TDOORS)DYN.push({x:st.dx+DOCK+o,y:EDGEY[k],w:TDW,h:.2,za:-2.5,zb:-1.5})});
 }
 // Is there something solid within r of this spot, on the player's level?
-export function solidAt(x,y,r){
+export function solidAt(x:number,y:number,r:number){
   for(const list of[COL,DYN])for(const c of list){
     if(P.z<c.za||P.z>=c.zb)continue;
     if(c.r!==undefined){if(Math.hypot(x-c.cx,y-c.cy)<c.r+r)return true}
@@ -40,8 +41,8 @@ export function solidAt(x,y,r){
   return false;
 }
 // Static colliders near where the player is about to be; collide() only tests these.
-export const NEAR=[];
-export function gather(x0,y0,x1,y1){
+export const NEAR:Col[]=[];
+export function gather(x0:number,y0:number,x1:number,y1:number){
   NEAR.length=0;
   for(const c of COL){
     if(c.r!==undefined){if(c.cx+c.r<x0||c.cx-c.r>x1||c.cy+c.r<y0||c.cy-c.r>y1)continue}

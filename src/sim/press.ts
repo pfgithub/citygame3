@@ -1,21 +1,22 @@
 import { Y } from '../constants';
 import { P, S } from '../state';
-import { LIFTS } from '../world/floors';
+import { LIFTS, type Lift } from '../world/floors';
 import { STATIONS } from '../world/subway';
 
 // Things you can press in first person by putting the crosshair on them and clicking.
 // pos() gives where the thing is right now (or null if it is not on the player's level).
-export const PRESS=[];
+export interface Pressable{r:number,tip:()=>string,act:()=>void,pos:()=>{x:number,y:number,h:number}|null}   // r: how close the aim must be
+const PRESS:Pressable[]=[];
 export function aimedPress(){
   if(!S.fp)return null;
-  const ex=P.x,ey=Y(P.z)+S.eyeH,ez=P.y,cp=Math.cos(S.pitch),dx=Math.cos(P.a)*cp,dy=Math.sin(S.pitch),dz=Math.sin(P.a)*cp;let best=null,bd=2.2;
+  const ex=P.x,ey=Y(P.z)+S.eyeH,ez=P.y,cp=Math.cos(S.pitch),dx=Math.cos(P.a)*cp,dy=Math.sin(S.pitch),dz=Math.sin(P.a)*cp;let best:Pressable|null=null,bd=2.2;
   for(const t of PRESS){const q=t.pos();if(!q)continue;
     const vx=q.x-ex,vy=q.h-ey,vz=q.y-ez,along=vx*dx+vy*dy+vz*dz;if(along<.1||along>bd)continue;
     if(Math.hypot(vx-dx*along,vy-dy*along,vz-dz*along)<t.r){bd=along;best=t}}
   return best;
 }
 // Lift buttons: a panel of floor buttons on the car's east wall, and a call button beside the door on every floor.
-export const panelOf=l=>{const n=l.zmax-l.zmin+1,cols=n>5?2:1,rows=Math.ceil(n/cols);return{n,cols,rows,pw:cols*.13,ph:rows*.11,cy:l.y+1.05,ch:1.3}};
+export const panelOf=(l:Lift)=>{const n=l.zmax-l.zmin+1,cols=n>5?2:1,rows=Math.ceil(n/cols);return{n,cols,rows,pw:cols*.13,ph:rows*.11,cy:l.y+1.05,ch:1.3}};
 for(const l of LIFTS){const pn=panelOf(l);
   for(let i=0;i<pn.n;i++){const f=l.zmin+i,col=i%pn.cols,row=Math.floor(i/pn.cols);
     PRESS.push({r:.05,tip:()=>'Floor '+(f+1),act:()=>{S.pendingBtn=f},

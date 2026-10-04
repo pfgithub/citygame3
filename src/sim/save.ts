@@ -5,7 +5,7 @@ import { CAM, P, S, SAVE } from '../state';
 let savedAt=0;
 // Saved once a second while playing, and when the page is hidden or closed.
 export function autoSave(){if(S.time-savedAt>1){savedAt=S.time;savePosition()}}
-export function savePosition(){
+function savePosition(){
   if(P.lift||P.train||P.boat)return;
   try{localStorage.setItem(SAVE,JSON.stringify({x:+P.x.toFixed(3),y:+P.y.toFixed(3),z:+P.z.toFixed(4),a:+P.a.toFixed(3),t:P.ticket}))}catch(_){}
 }

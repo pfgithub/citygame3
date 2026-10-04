@@ -6,19 +6,27 @@ import { P, S } from '../state';
 import { angDiff, clamp } from '../util';
 import { STAIRS } from '../world/floors';
 import { surfaceAt } from '../world/surfaces';
+import type { Group, Mesh } from 'three';
+import type { Disc, Pt, Rect } from '../types';
 
 // Two cars you can take. You get in through the driver's door: open it, then back into the
 // seat as with any chair (top-down, the door opens as you walk up and you step in). Top-down,
 // the pointer leads and the car follows it; in first person it is W/S and A/D. Grip depends on the ground, so ice and the pond matter.
-export const DCARS=[{x:21.5,y:71.15,a:0,col:'#e0a526'},{x:652,y:76,a:Math.PI,col:'#3f9a63'}].map(c=>({...c,door:0,dv:0,grab:false,exiting:false,vx:0,vy:0,thr:0,st:0,steer:0,ax:0,ay:0,len:4.4,home:{x:c.x,y:c.y,a:c.a}}));
-export const carEnds=c=>{const fx=Math.cos(c.a)*1.3,fy=Math.sin(c.a)*1.3;return[{x:c.x+fx,y:c.y+fy},{x:c.x,y:c.y},{x:c.x-fx,y:c.y-fy}]};   // the car as three discs of radius CR along its length
+// door: how far open (0..1), dv how fast it is swinging, grab whether it is held; exiting: getting
+// out (top-down). thr, st: throttle and steering asked for; steer: where the wheel actually is;
+// ax, ay: the pointer the car chases (top-down), relative to the car. home: where it was parked.
+// g, pivot (the door) and dash (seen from the driver's seat) are set when the scene is built.
+export interface DCar{x:number,y:number,a:number,col:string,door:number,dv:number,grab:boolean,exiting:boolean,vx:number,vy:number,
+  thr:number,st:number,steer:number,ax:number,ay:number,len:number,home:{x:number,y:number,a:number},g:Mesh,pivot:Group,dash:Mesh}
+export const DCARS=[{x:21.5,y:71.15,a:0,col:'#e0a526'},{x:652,y:76,a:Math.PI,col:'#3f9a63'}].map(c=>({...c,door:0,dv:0,grab:false,exiting:false,vx:0,vy:0,thr:0,st:0,steer:0,ax:0,ay:0,len:4.4,home:{x:c.x,y:c.y,a:c.a}}) as DCar);
+export const carEnds=(c:DCar):Pt[]=>{const fx=Math.cos(c.a)*1.3,fy=Math.sin(c.a)*1.3;return[{x:c.x+fx,y:c.y+fy},{x:c.x,y:c.y},{x:c.x-fx,y:c.y-fy}]};   // the car as three discs of radius CR along its length
 export const CR=.95;
-export const carSpeed=c=>Math.hypot(c.vx,c.vy);
+export const carSpeed=(c:DCar)=>Math.hypot(c.vx,c.vy);
 // Car-local coordinates: lx forward, ly to the right. The driver sits left of centre; the
 // door is hinged at its front edge and swings out from the left side.
-export const carPt=(c,lx,ly)=>({x:c.x+lx*Math.cos(c.a)-ly*Math.sin(c.a),y:c.y+lx*Math.sin(c.a)+ly*Math.cos(c.a)});
+const carPt=(c:DCar,lx:number,ly:number)=>({x:c.x+lx*Math.cos(c.a)-ly*Math.sin(c.a),y:c.y+lx*Math.sin(c.a)+ly*Math.cos(c.a)});
 export const SEAT=[-.05,-.38],HINGE=[.55,-.94],DOOR_L=1.1,DOOR_SWING_CAR=1.2;
-export function carDoorSeg(c){const t=c.door*DOOR_SWING_CAR,h=carPt(c,HINGE[0],HINGE[1]),e=carPt(c,HINGE[0]-Math.cos(t)*DOOR_L,HINGE[1]-Math.sin(t)*DOOR_L);return{h,e}}
+function carDoorSeg(c:DCar){const t=c.door*DOOR_SWING_CAR,h=carPt(c,HINGE[0],HINGE[1]),e=carPt(c,HINGE[0]-Math.cos(t)*DOOR_L,HINGE[1]-Math.sin(t)*DOOR_L);return{h,e}}
 // The car whose door the crosshair is on (first person), from outside or from the driver's seat.
 export function aimedCarDoor(){
   if(!S.fp||P.z!==0)return null;
@@ -31,12 +39,12 @@ export function aimedCarDoor(){
 }
 // A held car door follows the mouse the way it looks on screen: whichever way its free edge
 // would move across the view, dragging that way opens it.
-export function carDoorMouse(c,dx,dy){
+export function carDoorMouse(c:DCar,dx:number,dy:number){
   const t=.6,lx=Math.sin(t),ly=-Math.cos(t),wx=lx*Math.cos(c.a)-ly*Math.sin(c.a),wy=lx*Math.sin(c.a)+ly*Math.cos(c.a);   // which way the edge travels, mid-swing
   const side=wx*-Math.sin(P.a)+wy*Math.cos(P.a);
   c.dv+=clamp((Math.abs(side)>.15?dx*Math.sign(side):dy)*.008,-.14,.14);   // (seen end-on, pulling the mouse back opens it)
 }
-export function enterCar(c){P.car=c;P.sit=null;c.ax=c.ay=0;c.exiting=false;if(S.fp){P.a=c.a;S.pitch=0}}
+export function enterCar(c:DCar){P.car=c;P.sit=null;c.ax=c.ay=0;c.exiting=false;if(S.fp){P.a=c.a;S.pitch=0}}
 export function exitCar(){
   const c=P.car;if(!c||carSpeed(c)>2.5)return;
   for(const side of[-1.75,1.75]){const q=carPt(c,-.3,side);          // out of the driver's door if there is room
@@ -48,8 +56,8 @@ export function carSeatBehind(){
   return DCARS.find(c=>{if(c.door<.6||P.z!==0)return false;const q=carPt(c,SEAT[0],SEAT[1]),dx=q.x-P.x,dy=q.y-P.y,d=Math.hypot(dx,dy);return d<1.45&&dx*fx+dy*fy<-.3*d})||null;
 }
 export const carStepIn=()=>P.z!==0||P.boat||P.sit?null:DCARS.find(c=>{const q=carPt(c,SEAT[0],SEAT[1]);return c.door>.6&&Math.hypot(q.x-P.x,q.y-P.y)<1.03})||null;
-export const atCarDoor=c=>{const q=carPt(c,-.1,-1.5);return P.z===0&&!P.car&&Math.hypot(q.x-P.x,q.y-P.y)<1.6};
-export function updateCarDoors(dt){
+const atCarDoor=(c:DCar)=>{const q=carPt(c,-.1,-1.5);return P.z===0&&!P.car&&Math.hypot(q.x-P.x,q.y-P.y)<1.6};
+export function updateCarDoors(dt:number){
   for(const c of DCARS){
     if(!S.fp){ // top-down: the door opens for you as you come up to it, and shuts behind you
       c.grab=false;c.dv=0;
@@ -65,7 +73,7 @@ export function updateCarDoors(dt){
   }
 }
 export const nearCar=()=>P.car||P.z!==0?null:DCARS.find(c=>Math.hypot(c.x-P.x,c.y-P.y)<4)||null;
-export function updateDriving(dt){
+export function updateDriving(dt:number){
   const c=P.car;if(!c)return;
   const fx=Math.cos(c.a),fy=Math.sin(c.a),sf=surfaceAt(c.x,c.y,0),a0=c.a;
   if(P.car===c&&S.fp&&c.door>.6&&carSpeed(c)<1&&(c.thr>0||c.st<0)){exitCar();return}   // door open, stopped: forward or left is out of the car
@@ -87,10 +95,10 @@ export function updateDriving(dt){
   c.x+=c.vx*dt;c.y+=c.vy*dt;
   // collisions: the car's discs are pushed out of anything solid at street level
   gather(c.x-4,c.y-4,c.x+4,c.y+4);
-  const solids=[...NEAR.filter(o=>o.za<=0&&o.zb>0),...CARS.map(carRect),...STAIRS.filter(s=>s.zh===0)];
+  const solids:(Rect|Disc)[]=[...NEAR.filter(o=>o.za<=0&&o.zb>0),...CARS.map(carRect),...STAIRS.filter(s=>s.zh===0)];
   for(const o of DCARS)if(o!==c)for(const e of carEnds(o))solids.push({cx:e.x,cy:e.y,r:CR});
-  for(let it=0;it<3;it++)for(const e of carEnds(c))for(const o of solids){let nx,ny,pen;
-    if(o.r!==undefined&&o.cx!==undefined){const dx=e.x-o.cx,dy=e.y-o.cy,d=Math.hypot(dx,dy)||1e-6;pen=CR+o.r-d;nx=dx/d;ny=dy/d}
+  for(let it=0;it<3;it++)for(const e of carEnds(c))for(const o of solids){let nx:number,ny:number,pen:number;
+    if('cx' in o){const dx=e.x-o.cx,dy=e.y-o.cy,d=Math.hypot(dx,dy)||1e-6;pen=CR+o.r-d;nx=dx/d;ny=dy/d}
     else{const qx=clamp(e.x,o.x,o.x+o.w),qy=clamp(e.y,o.y,o.y+o.h),dx=e.x-qx,dy=e.y-qy,d=Math.hypot(dx,dy);
       if(d<1e-6){const l=e.x-o.x,r=o.x+o.w-e.x,t=e.y-o.y,b=o.y+o.h-e.y,m=Math.min(l,r,t,b);nx=m===l?-1:m===r?1:0;ny=m===t?-1:m===b?1:0;if(nx)ny=0;pen=CR+m}else{pen=CR-d;nx=dx/d;ny=dy/d}}
     if(pen>0){c.x+=nx*pen;c.y+=ny*pen;e.x+=nx*pen;e.y+=ny*pen;const vn=c.vx*nx+c.vy*ny;if(vn<0){c.vx-=nx*vn*1.2;c.vy-=ny*vn*1.2;c.vx*=.92;c.vy*=.92}}}

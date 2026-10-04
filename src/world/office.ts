@@ -1,17 +1,17 @@
 import { box } from './colliders';
-import { FL, addLift, addStair, ffurn, fround, fwall } from './floors';
+import { FL, type WinWall, addLift, addStair, ffurn, fround, fwall } from './floors';
 
 export const OFFICE={x:54,y:46,w:28,h:20};
 export const DOORPT={x:68,y:65.85};
 export const CAR=addLift(70,46.6,0,2);
 // Outer wall with windows: solid to walk into, but sight passes through the panes.
-export const WIN={first:2,step:3,len:1.9};
-export function winStarts(z,horiz,south){const o=OFFICE,a=horiz?o.x:o.y,n=horiz?o.w:o.h,r=[];
+const WIN={first:2,step:3,len:1.9};
+function winStarts(z:number,horiz:boolean,south:boolean){const o=OFFICE,a=horiz?o.x:o.y,n=horiz?o.w:o.h,r:number[]=[];
   for(let v=a+WIN.first;v<a+n-2;v+=WIN.step)if(!(horiz&&south&&z===0&&v>=65&&v<=70))r.push(v);return r}
-export function owall(z,x,y,w,h){
-  const rec={x,y,w,h,wins:[],len:WIN.len};FL[z].walls.push(rec);
+function owall(z:number,x:number,y:number,w:number,h:number){
+  const rec:WinWall={x,y,w,h,wins:[],len:WIN.len};FL[z].walls.push(rec);
   const horiz=w>h,a=horiz?x:y,b=a+(horiz?w:h);let c=a;
-  const piece=(p,q)=>{if(q-p>.01)horiz?box(p,y,q-p,h,z-.5,z+.5,true):box(x,p,w,q-p,z-.5,z+.5,true)};
+  const piece=(p:number,q:number)=>{if(q-p>.01)horiz?box(p,y,q-p,h,z-.5,z+.5,true):box(x,p,w,q-p,z-.5,z+.5,true)};
   for(const v of winStarts(z,horiz,y>OFFICE.y+1)){if(v<a||v+WIN.len>b)continue;
     rec.wins.push(v);piece(c,v);horiz?box(v,y,WIN.len,h,z-.5,z+.5):box(x,v,w,WIN.len,z-.5,z+.5);c=v+WIN.len}
   piece(c,b);
@@ -20,8 +20,8 @@ for(const z of[0,1,2]){
   owall(z,54,46,28,.3);owall(z,54,46,.3,20);owall(z,81.7,46,.3,20);
   if(z===0){owall(0,54,65.7,13,.3);owall(0,69,65.7,13,.3)}else owall(z,54,65.7,28,.3);
 }
-export const stA=addStair(74,49,1.4,6,'N',0,1);
-export const stB=addStair(75.6,49,1.4,6,'S',1,2);
+addStair(74,49,1.4,6,'N',0,1);
+addStair(75.6,49,1.4,6,'S',1,2);
 ffurn(0,75.6,49,1.4,6,'#3a3d44',{opq:1});          // solid under the upper flight
 ffurn(2,74,49,1.4,6,'#22252a');            // void above the lower flight
 
