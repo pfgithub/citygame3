@@ -6,7 +6,7 @@ import type { b2BodyId, b2JointId, b2ShapeId } from 'box2d-compat';
 // body is a bullet), so nothing is ever placed or teleported. The world is top-down: no gravity.
 export const B=await Box2DFactory();
 export type BodyId=b2BodyId;export type ShapeId=b2ShapeId;export type JointId=b2JointId;
-const wd=B.b2DefaultWorldDef();wd.gravity=new B.b2Vec2(0,0);wd.enableContinuous=true;wd.enableSleep=false;
+const wd=B.b2DefaultWorldDef();wd.gravity=new B.b2Vec2(0,0);wd.enableContinuous=true;wd.enableSleep=false;wd.maximumLinearSpeed=1000;
 const W=B.b2CreateWorld(wd);
 const V=new B.b2Vec2(0,0),ROT0=B.b2MakeRot(0),FILT=B.b2DefaultShapeDef().filter;
 const vec=(x:number,y:number)=>{V.x=x;V.y=y;return V};

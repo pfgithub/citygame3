@@ -34,7 +34,7 @@ function holdTarget(){
   if(Math.hypot(x-PB.x,y-PB.y)<.06&&Math.hypot(PB.vx-vx,PB.vy-vy)<.5){P.ghost=null;return null}
   return{x,y,vx,vy,sp:g.sp};
 }
-const VMAX=25,LEASH=6,OMEGA=12,BRAKE=.85;
+const VMAX=300,LEASH=10,OMEGA=12,BRAKE=.85;
 let stuck=0;                                  // how long the body has made no headway towards the pointer
 // Move the player for one tick. Top-down, (ux, uy) is how far the mouse moved the pointer and
 // (sx, sy) how far a blow shoves it; in first person (or a scripted test) `want` is the velocity
@@ -43,7 +43,7 @@ export function movePlayer(dt:number,ux:number,uy:number,sx:number,sy:number,wan
   const h=holdTarget();
   if(h){let dx=h.x-PB.x,dy=h.y-PB.y;const d=Math.hypot(dx,dy),k=Math.min(OMEGA*1.5,h.sp/(d||1));dx*=k;dy*=k;
     drive(PB,h.vx+dx,h.vy+dy,1/30,600,dt);P.tx=PB.x;P.ty=PB.y;return}
-  const f=frameVel(),sf=P.boat||P.lift?null:surfaceAt(PB.x,PB.y,P.z),amax=sf==='water'?12:A.ball?70:250;
+  const f=frameVel(),sf=P.boat||P.lift?null:surfaceAt(PB.x,PB.y,P.z),amax=sf==="water"?12:A.ball?70:1e5;
   let vx:number,vy:number;                              // the velocity the legs aim for, relative to the ground underfoot
   if(want){vx=want.x;vy=want.y;P.tx=PB.x;P.ty=PB.y}
   else{ // the pointer leads; the body chases it, and the pointer never gets far ahead
