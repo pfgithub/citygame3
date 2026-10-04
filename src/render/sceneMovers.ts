@@ -18,7 +18,7 @@ for(const c of CARS){const mb=new MB(),L=c.len;
   mb.box(-L/2,-.92,L,1.84,.22,.85,shade(c.col,.85),c.col);mb.box(-L*.26,-.78,L*.48,1.56,.85,1.38,'#26303b',c.col);
   mb.box(L/2-.04,-.8,.06,.4,.5,.7,'#fff6c8');mb.box(L/2-.04,.4,.06,.4,.5,.7,'#fff6c8');
   mb.box(-L/2-.02,-.8,.06,.4,.5,.7,'#c03a34');mb.box(-L/2-.02,.4,.06,.4,.5,.7,'#c03a34');
-  c.g=mb.mesh();c.g.rotation.y=c.ln.ax==='x'?(c.ln.dir>0?0:Math.PI):(c.ln.dir>0?-Math.PI/2:Math.PI/2);OUTG.add(c.g)}
+  c.g=mb.mesh();c.g.rotation.y=-c.a;OUTG.add(c.g)}
 export const SIGNALS=[[85.4,82.7,0],[104.6,69.3,0],[89.3,65.4,1],[100.7,86.6,1]].map(([x,y,g])=>{
   const mb=new MB();mb.cyl(x,y,.08,0,4,'#33363c','#33363c',6);mb.box(x-.25,y-.25,.5,.5,3.9,5.1,'#1f2126');OUTG.add(mb.mesh());
   const lamp=new THREE.Mesh(UNIT,new THREE.MeshBasicMaterial());lamp.position.set(x,4.75,y);lamp.scale.set(.62,.9,.62);OUTG.add(lamp);return{lamp,g}});

@@ -8,7 +8,8 @@
     "strict": true,
     "noEmit": true,
     "isolatedModules": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": { "box2d-compat": ["./node_modules/box2d3-wasm/build/dist/es/compat/Box2D.compat.d.ts"] }
   },
   "include": ["src", "vite.config.ts"]
 }

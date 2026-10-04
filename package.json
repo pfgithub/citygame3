@@ -10,6 +10,7 @@
     "typecheck": "tsc"
   },
   "dependencies": {
+    "box2d3-wasm": "5.2.0",
     "three": "0.186.1"
   },
   "devDependencies": {

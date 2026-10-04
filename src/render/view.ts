@@ -13,7 +13,7 @@ import { BOAT } from '../sim/boat';
 import { DOOR_SWING } from '../sim/door';
 import { DCARS, DOOR_SWING_CAR } from '../sim/driving';
 import { PEDS } from '../sim/peds';
-import { CARS, LANES, carRect, sigState } from '../sim/traffic';
+import { CARS, sigState } from '../sim/traffic';
 import { gatesOpen } from '../sim/trains';
 import { CAM, P, S } from '../state';
 import { clamp, inRect, lerp } from '../util';
@@ -68,10 +68,8 @@ export function render(){
   for(const g of GATES){ // an unlocked arm swings away from you as you come through
     const d=Math.hypot(P.x-g.cx,P.y-g.cy),o=P.z===-1&&gatesOpen()?clamp((1.05-d)/.6):0;
     g.o+=(o-g.o)*.35;g.pivot.rotation.y=(P.x<g.cx?1:-1)*g.o*1.45}
-  for(const q of PEDS){const sat=q.sit>0;q.g.position.set(q.x,sat?-.3:Math.abs(Math.sin(S.time*7+q.sp*40))*(q.wait?0:.035),q.y);q.g.rotation.y=-q.a}
-  for(const c of CARS){const r=carRect(c);
-    if(c.turn>0){const u=1-c.turn;c.g.position.set(c.ln.b+Math.sin(Math.PI*u)*2.2,0,lerp(LANES[0].c,LANES[1].c,u));c.g.rotation.y=-Math.PI*u*-1+0}   // swinging round at the harbour end
-    else{c.g.position.set(r.x+r.w/2,0,r.y+r.h/2);c.g.rotation.y=c.ln.ax==='x'?(c.ln.dir>0?0:Math.PI):(c.ln.dir>0?-Math.PI/2:Math.PI/2)}}
+  for(const q of PEDS){const sat=q.sit>0&&!!q.seat,walking=Math.hypot(q.vx,q.vy)>.3;q.g.position.set(q.x,sat?-.3:walking?Math.abs(Math.sin(S.time*7+q.sp*40))*.035:0,q.y);q.g.rotation.y=-q.hd}
+  for(const c of CARS){c.g.position.set(c.x,0,c.y);c.g.rotation.y=-c.a}
   for(const sg of SIGNALS){const st=sigState(sg.g);sg.lamp.material.color.set(st==='g'?'#3fd06a':st==='y'?'#f0b63a':'#e5484d')}
   for(const c of DCARS){c.g.position.set(c.x,0,c.y);c.g.rotation.y=-c.a;c.dash.visible=S.fp&&P.car===c;c.pivot.rotation.y=-c.door*DOOR_SWING_CAR}
   {const b=BOAT;b.g.position.set(b.x,Math.sin(S.time*1.3)*.02,b.y);b.g.rotation.y=-b.a;

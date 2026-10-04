@@ -35,7 +35,7 @@ export function arenaSync(){
     const sq=1+Math.sin(S.time*6+i)*.05;m.position.set(c.x,c.r*.8,c.y);m.scale.set(c.r*sq,c.r*.8/sq,c.r*sq);m.rotation.y=Math.atan2(-c.vy,c.vx);
     m.material.color.set(c.col);m.material.emissive.setScalar(c.flash>0?.7:0);
     const w=1.4*c.hp/c.max;b.position.set(c.x-(1.4-w)/2,c.r*1.7+.5,c.y-c.r-.2);b.scale.set(Math.max(w,.01),.12,.16)});
-  AV.arrow.forEach((m,i)=>{const a=A.arrows[i];if(!a){m.visible=false;return}const s=Math.hypot(a.vx,a.vy);stick(m,a.x-a.vx/s*1.1,a.y-a.vy/s*1.1,a.x,a.y,1,.07)});
+  AV.arrow.forEach((m,i)=>{const a=A.arrows[i];if(!a){m.visible=false;return}const s=Math.hypot(a.vx,a.vy)||1e9;stick(m,a.x-a.vx/s*1.1,a.y-a.vy/s*1.1,a.x,a.y,1,.07)});
   AV.pud.forEach((m,i)=>{const p=A.puddles[i];m.visible=!!p;if(!p)return;const on=p.t>1;m.material=on?AV.flame:AV.fuel;
     const h=on?.5+.45*Math.sin(S.time*17+i*2.1):.04,r=on?1.25:Math.min(1.1,.4+p.t);m.position.set(p.x,h/2+.02,p.y);m.scale.set(r,h,r)});
   const l=A.lasso,pts=l?[...l.pts,{x:P.x,y:P.y}]:[];
@@ -67,6 +67,6 @@ export function arenaSync(){
   {const w=A.well;AV.well.visible=!!w;if(w){const r=1+w.t*1.1+Math.sin(S.time*14)*.12;AV.well.position.set(w.x,.08,w.y);AV.well.scale.set(r,.06,r)}}
   AV.orb.forEach((m,i)=>{const o=A.orbs[i];m.visible=!!o;if(o){m.position.set(o.x,.45,o.y);m.scale.setScalar(.32)}});
   const ms=A.missile;AV.missile.visible=!!ms;
-  if(ms){stick(AV.missile,ms.x-Math.cos(ms.a)*.6,ms.y-Math.sin(ms.a)*.6,ms.x+Math.cos(ms.a)*.6,ms.y+Math.sin(ms.a)*.6,1.2,.3)}
+  if(ms){stick(AV.missile,ms.x-Math.cos(ms.h)*.6,ms.y-Math.sin(ms.h)*.6,ms.x+Math.cos(ms.h)*.6,ms.y+Math.sin(ms.h)*.6,1.2,.3)}
   const bl=A.blast;AV.blast.visible=!!bl;if(bl){AV.blast.position.set(bl.x,1,bl.y);AV.blast.scale.setScalar(.5+bl.t/.45*bl.r);AV.blast.material.opacity=.7*(1-bl.t/.45)}
 }
