@@ -1,30 +1,24 @@
 import { R } from '../constants';
 import { A } from './arena';
-import { solidAt } from './collide';
+import { NEAR, gather, solidAt } from './collide';
+import { CARS, carRect } from './traffic';
 import { P, S } from '../state';
 import { angDiff, clamp } from '../util';
-import { CAT, type Body, addBox, force, inertia, lv, mass, mkBody, torque, track } from '../physics';
-import { wall } from '../world/colliders';
 import { STAIRS } from '../world/floors';
 import { surfaceAt } from '../world/surfaces';
 import type { Group, Mesh } from 'three';
-import type { Pt } from '../types';
+import type { Disc, Pt, Rect } from '../types';
 
 // Two cars you can take. You get in through the driver's door: open it, then back into the
 // seat as with any chair (top-down, the door opens as you walk up and you step in). Top-down,
 // the pointer leads and the car follows it; in first person it is W/S and A/D. Grip depends on the ground, so ice and the pond matter.
 // door: how far open (0..1), dv how fast it is swinging, grab whether it is held; exiting: getting
 // out (top-down). thr, st: throttle and steering asked for; steer: where the wheel actually is;
-// ax, ay: the pointer the car chases (top-down), relative to the car.
+// ax, ay: the pointer the car chases (top-down), relative to the car. home: where it was parked.
 // g, pivot (the door) and dash (seen from the driver's seat) are set when the scene is built.
-// Each is a 1.2 t body: the engine, brakes and tyres are forces on it, and it crashes into things.
-export interface DCar extends Body{col:string,door:number,dv:number,grab:boolean,exiting:boolean,
-  thr:number,st:number,steer:number,ax:number,ay:number,len:number,g:Mesh,pivot:Group,dash:Mesh}
-export const DCARS=[{x:21.5,y:71.15,a:0,col:'#e0a526'},{x:652,y:76,a:Math.PI,col:'#3f9a63'}].map(c=>{
-  const d=track({...c,door:0,dv:0,grab:false,exiting:false,thr:0,st:0,steer:0,ax:0,ay:0,len:4.4} as DCar,mkBody('dynamic',c.x,c.y,c.a));
-  addBox(d.id,0,0,2.2,.92,CAT.CAR,lv(0)|CAT.CARONLY|CAT.CAR|CAT.PED|CAT.PLAYER,{density:1200/(4.4*1.84),friction:.3,restitution:.2});return d});
-// Cars keep out of the stairwells down to the stations.
-for(const s of STAIRS)if(s.zh===0)wall(s.x,s.y,s.w,s.h,CAT.CARONLY,CAT.CAR);
+export interface DCar{x:number,y:number,a:number,col:string,door:number,dv:number,grab:boolean,exiting:boolean,vx:number,vy:number,
+  thr:number,st:number,steer:number,ax:number,ay:number,len:number,home:{x:number,y:number,a:number},g:Mesh,pivot:Group,dash:Mesh}
+export const DCARS=[{x:21.5,y:71.15,a:0,col:'#e0a526'},{x:652,y:76,a:Math.PI,col:'#3f9a63'}].map(c=>({...c,door:0,dv:0,grab:false,exiting:false,vx:0,vy:0,thr:0,st:0,steer:0,ax:0,ay:0,len:4.4,home:{x:c.x,y:c.y,a:c.a}}) as DCar);
 export const carEnds=(c:DCar):Pt[]=>{const fx=Math.cos(c.a)*1.3,fy=Math.sin(c.a)*1.3;return[{x:c.x+fx,y:c.y+fy},{x:c.x,y:c.y},{x:c.x-fx,y:c.y-fy}]};   // the car as three discs of radius CR along its length
 export const CR=.95;
 export const carSpeed=(c:DCar)=>Math.hypot(c.vx,c.vy);
@@ -54,14 +48,14 @@ export function enterCar(c:DCar){P.car=c;P.sit=null;c.ax=c.ay=0;c.exiting=false;
 export function exitCar(){
   const c=P.car;if(!c||carSpeed(c)>2.5)return;
   for(const side of[-1.75,1.75]){const q=carPt(c,-.3,side);          // out of the driver's door if there is room
-    if(!solidAt(q.x,q.y,R)){P.car=null;P.ghost={pts:[q],sp:3};c.thr=c.st=0;return}}
+    if(!solidAt(q.x,q.y,R)){P.car=null;P.x=q.x;P.y=q.y;c.vx=c.vy=c.thr=0;return}}
 }
 // Backing towards an open driver's door (first person) / stepping in at one (top-down).
 export function carSeatBehind(){
   const fx=Math.cos(P.a),fy=Math.sin(P.a);
   return DCARS.find(c=>{if(c.door<.6||P.z!==0)return false;const q=carPt(c,SEAT[0],SEAT[1]),dx=q.x-P.x,dy=q.y-P.y,d=Math.hypot(dx,dy);return d<1.45&&dx*fx+dy*fy<-.3*d})||null;
 }
-export const carStepIn=()=>P.z!==0||P.boat||P.sit||P.ghost?null:DCARS.find(c=>{const q=carPt(c,SEAT[0],SEAT[1]);return c.door>.6&&Math.hypot(q.x-P.x,q.y-P.y)<1.03})||null;
+export const carStepIn=()=>P.z!==0||P.boat||P.sit?null:DCARS.find(c=>{const q=carPt(c,SEAT[0],SEAT[1]);return c.door>.6&&Math.hypot(q.x-P.x,q.y-P.y)<1.03})||null;
 const atCarDoor=(c:DCar)=>{const q=carPt(c,-.1,-1.5);return P.z===0&&!P.car&&Math.hypot(q.x-P.x,q.y-P.y)<1.6};
 export function updateCarDoors(dt:number){
   for(const c of DCARS){
@@ -79,28 +73,35 @@ export function updateCarDoors(dt:number){
   }
 }
 export const nearCar=()=>P.car||P.z!==0?null:DCARS.find(c=>Math.hypot(c.x-P.x,c.y-P.y)<4)||null;
-// Every car, driven or parked. A parked car has its handbrake on.
 export function updateDriving(dt:number){
-  for(const c of DCARS){
-    const driven=P.car===c,sf=surfaceAt(c.x,c.y,0);
-    if(driven&&S.fp&&c.door>.6&&carSpeed(c)<1&&(c.thr>0||c.st<0)){exitCar();continue}   // door open, stopped: forward or left is out of the car
-    if(driven&&!S.fp){ // the pointer leads: steer at it, and go faster the further off it is
-      const d=Math.hypot(c.ax,c.ay),want=Math.atan2(c.ay,c.ax),da=angDiff(want,c.a);
-      if(d<1.6){c.thr=0;c.st=0}
-      else if(Math.abs(da)<2.2){c.thr=clamp((d-1.6)/7,0,1);c.st=clamp(da*1.3,-.6,.6)}
-      else{c.thr=-.6;c.st=clamp(-angDiff(want,c.a+Math.PI)*1.3,-.6,.6)}       // it is behind: back up towards it
-    }
-    if(!driven){c.thr=0;c.st=0}
-    if(c.door>.2)c.thr=0;                                                // it will not pull away with the door open
-    c.steer+=clamp(c.st*(S.fp?.55:1)-c.steer,-2.2*dt,2.2*dt);
-    const fx=Math.cos(c.a),fy=Math.sin(c.a),vf=c.vx*fx+c.vy*fy,vl=-c.vx*fy+c.vy*fx,ice=sf==='ice',water=sf==='water';
-    const push=ice?.3:1;let af:number;
-    if(!driven)af=-clamp(vf/.3,-(ice?1:8),ice?1:8);                     // handbrake
-    else if(c.thr>0)af=(vf<0?14:9*push)*c.thr;else if(c.thr<0)af=(vf>0?14*push:5*push)*c.thr;else af=-vf*(ice?.15:1.3);
-    const top=water?4:22;if(vf>top)af=Math.min(af,-(vf-top)*4);if(vf<-6)af=Math.max(af,(-6-vf)*4);
-    if(water)af-=vf*2.5;
-    const grip=ice?.5:water?6:14,lmax=ice?1.5:9,al=clamp(-vl*grip,-lmax,lmax);   // sideways grip: on ice there is almost none
-    const m=mass(c.id);force(c.id,(af*fx-al*fy)*m,(af*fy+al*fx)*m);
-    const wz=vf/2.6*Math.tan(c.steer);torque(c.id,clamp((wz-c.w)/.08,-30,30)*inertia(c.id));   // the front wheels turn it as it rolls
+  const c=P.car;if(!c)return;
+  const fx=Math.cos(c.a),fy=Math.sin(c.a),sf=surfaceAt(c.x,c.y,0),a0=c.a;
+  if(P.car===c&&S.fp&&c.door>.6&&carSpeed(c)<1&&(c.thr>0||c.st<0)){exitCar();return}   // door open, stopped: forward or left is out of the car
+  if(!S.fp){ // the pointer leads: steer at it, and go faster the further off it is
+    const d=Math.hypot(c.ax,c.ay),want=Math.atan2(c.ay,c.ax),da=angDiff(want,c.a);
+    if(d<1.6){c.thr=0;c.st=0}
+    else if(Math.abs(da)<2.2){c.thr=clamp((d-1.6)/7,0,1);c.st=clamp(da*1.3,-.6,.6)}
+    else{c.thr=-.6;c.st=clamp(-angDiff(want,c.a+Math.PI)*1.3,-.6,.6)}       // it is behind: back up towards it
   }
+  if(c.door>.2)c.thr=0;                                                // it will not pull away with the door open
+  c.steer+=clamp(c.st*(S.fp?.55:1)-c.steer,-2.2*dt,2.2*dt);
+  let vf=c.vx*fx+c.vy*fy,vl=-c.vx*fy+c.vy*fx;
+  const push=sf==='ice'?.3:1;
+  if(c.thr>0)vf+=(vf<0?14:9*push)*c.thr*dt;else if(c.thr<0)vf+=(vf>0?14*push:5*push)*c.thr*dt;else vf*=Math.exp(-dt*(sf==='ice'?.15:1.3));
+  vf=clamp(vf,-6,sf==='water'?4:22);if(sf==='water')vf*=Math.exp(-dt*2.5);
+  vl*=Math.exp(-dt*(sf==='ice'?.5:sf==='water'?6:14));                  // sideways grip: on ice there is almost none
+  c.a+=vf/2.6*Math.tan(c.steer)*dt;
+  const gx=Math.cos(c.a),gy=Math.sin(c.a);c.vx=gx*vf-gy*vl;c.vy=gy*vf+gx*vl;
+  c.x+=c.vx*dt;c.y+=c.vy*dt;
+  // collisions: the car's discs are pushed out of anything solid at street level
+  gather(c.x-4,c.y-4,c.x+4,c.y+4);
+  const solids:(Rect|Disc)[]=[...NEAR.filter(o=>o.za<=0&&o.zb>0),...CARS.map(carRect),...STAIRS.filter(s=>s.zh===0)];
+  for(const o of DCARS)if(o!==c)for(const e of carEnds(o))solids.push({cx:e.x,cy:e.y,r:CR});
+  for(let it=0;it<3;it++)for(const e of carEnds(c))for(const o of solids){let nx:number,ny:number,pen:number;
+    if('cx' in o){const dx=e.x-o.cx,dy=e.y-o.cy,d=Math.hypot(dx,dy)||1e-6;pen=CR+o.r-d;nx=dx/d;ny=dy/d}
+    else{const qx=clamp(e.x,o.x,o.x+o.w),qy=clamp(e.y,o.y,o.y+o.h),dx=e.x-qx,dy=e.y-qy,d=Math.hypot(dx,dy);
+      if(d<1e-6){const l=e.x-o.x,r=o.x+o.w-e.x,t=e.y-o.y,b=o.y+o.h-e.y,m=Math.min(l,r,t,b);nx=m===l?-1:m===r?1:0;ny=m===t?-1:m===b?1:0;if(nx)ny=0;pen=CR+m}else{pen=CR-d;nx=dx/d;ny=dy/d}}
+    if(pen>0){c.x+=nx*pen;c.y+=ny*pen;e.x+=nx*pen;e.y+=ny*pen;const vn=c.vx*nx+c.vy*ny;if(vn<0){c.vx-=nx*vn*1.2;c.vy-=ny*vn*1.2;c.vx*=.92;c.vy*=.92}}}
+  if(c.x<900){c.x=clamp(c.x,1.2,678.8);const y0=c.x<200?0:c.x<560?40:42,y1=c.x<200?160:c.x<560?112:130;c.y=clamp(c.y,y0+1.2,y1-1.2)}
+  P.x=c.x;P.y=c.y;P.z=0;if(S.fp)P.a+=c.a-a0;
 }

@@ -56,9 +56,9 @@ export function trainY(leg:number,x:number){ // top edge of a train at x while r
   const t=clamp((x-c.a)/(c.b-c.a));return lerp(TRACKY[1],TRACKY[0],t*t*(3-2*t));
 }
 // A train is at stop i of the loop (or running from it to the next). t: time dwelt, u: how far
-// along the run, door: how far open; vx, vy: its velocity. g and doors are its meshes, set when the scene is built.
-export interface Train{i:number,x:number,y:number,vx:number,vy:number,phase:'dwell'|'closing'|'run',t:number,u:number,door:number,col:string,g:Group,doors:[Mesh,Mesh][][]}
-export const TRAINS=['#d2452f','#2f6fd2','#e0a526'].map((col,i)=>({i,x:stopX(i),y:TRACKY[STOPS[i].k],vx:0,vy:0,phase:'dwell',t:0,u:0,door:0,col}) as Train);
+// along the run, door: how far open. g and doors are its meshes, set when the scene is built.
+export interface Train{i:number,x:number,y:number,phase:'dwell'|'closing'|'run',t:number,u:number,door:number,col:string,g:Group,doors:[Mesh,Mesh][][]}
+export const TRAINS=['#d2452f','#2f6fd2','#e0a526'].map((col,i)=>({i,x:stopX(i),y:TRACKY[STOPS[i].k],phase:'dwell',t:0,u:0,door:0,col}) as Train);
 // The solid parts of a train where it is right now: hull walls, and the doors down each side.
 export function trainParts(tr:Pt){
   const x=tr.x,y=tr.y,t=.15,z={za:-2.5,zb:-1.5};

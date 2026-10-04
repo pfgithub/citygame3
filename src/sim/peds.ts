@@ -1,13 +1,12 @@
 import { SIG_T } from './traffic';
 import { P, S } from '../state';
 import { mulberry32 } from '../util';
-import { CAT, type Body, addCircle, drive, mkBody, track } from '../physics';
 import type { Mesh } from 'three';
 import type { Pt } from '../types';
 import { OUT } from '../world/outdoors';
 
 // People walk a small network of sidewalk and park-path points. `x` marks a way out of the
-// district (they stand there a while, then set off again), and crossings wait for the lights.
+// district (they leave and someone else arrives), and crossings wait for the lights.
 const PN:Record<string,[number,number,string?]>={wn:[2,68,'x'],t:[34,68],o:[68,68],nw:[88,68],ne:[102,68],g1:[120,68],g2:[172,68],en:[198,68],
   ws:[2,84,'x'],sw:[88,84],se:[102,84],pl:[111.5,84],es:[198,84],a1:[304,68],a1x:[304,43,'x'],a2:[434,68],a2x:[434,43,'x'],b1:[354,84],b1x:[354,109,'x'],hn:[561,68],hs:[561,84],hq:[590,66],hqe:[660,66],hsq:[600,84],hsub:[611.5,91,'x'],nn:[88,2,'x'],ne2:[102,2,'x'],wg:[102,32],ss:[88,158,'x'],ss2:[102,158,'x'],
   td:[34,66.3,'x'],od:[68,66.3,'x'],sub:[111.5,91,'x'],p1:[120,50],p2:[172,50],fw:[143.5,36.5],fe:[156.5,36.5],fn:[150,26.5],pn:[150,6]};
@@ -28,39 +27,33 @@ function pedPath(a:string,b:string){ // shortest way through the network
 // May someone step off the kerb now? Only while the traffic they would cross has a red with enough of it left.
 function mayCross(g:number,len:number){const t=S.time%SIG_T,need=(len-4)/1.4+1;   // (the road itself is 4 m narrower than kerb-node to kerb-node)
  return g===0?(t>=14.3&&t+need<SIG_T+.3):(t>=25.3||t+need<14.7)}
-// A pedestrian: at a network point, walking `path` (or sat on `seat`, or standing about at a way
-// out, for `sit` more seconds), keeping `off` metres to one side. on: out on a crossing; wait:
-// waiting to cross; hd: which way they face. Each is a 65 kg body that walks by force; they bump
-// into the player, cars and each other, but keep to their paths through the scenery. g is set
-// when the scene is built.
-export interface Ped extends Body{at:string,sp:number,off:number,sit:number,on:boolean,hd:number,col:string,seat:PSeat|null,path:string[],wait?:boolean,g:Mesh}
+// A pedestrian: at a network point, walking `path` (or sat on `seat` for `sit` more seconds),
+// keeping `off` metres to one side. on: out on a crossing; wait: waiting to cross. g is set when
+// the scene is built.
+export interface Ped extends Pt{at:string,sp:number,off:number,sit:number,on:boolean,a:number,col:string,seat:PSeat|null,path:string[],wait?:boolean,g:Mesh}
 export const prng=mulberry32(77),PEDS:Ped[]=[];
 function pedGoal(q:Ped){
   if(prng()<.3){const free=PSEATS.filter(s=>!s.taken);if(free.length){const st=free[Math.floor(prng()*free.length)];st.taken=true;q.seat=st;q.path=pedPath(q.at,st.near);return}}
   let d:string;do{d=PEXITS[Math.floor(prng()*PEXITS.length)]}while(d===q.at);q.seat=null;q.path=pedPath(q.at,d);
 }
-const PR=.22;
 for(let i=0;i<46;i++){const at=Object.keys(PN)[Math.floor(prng()*Object.keys(PN).length)];
-  const q={at,x:PN[at][0],y:PN[at][1],sp:1.15+prng()*.5,off:(prng()-.5)*1.8,sit:0,on:false,hd:0,col:['#3b5b8a','#8a3b3b','#3f7d5a','#6b6f78','#a0763a','#5a3f8a','#2f3138','#b8a070'][i%8]} as Ped;
-  pedGoal(q);track(q,mkBody('dynamic',q.x,q.y,0,{fixedRot:true}));addCircle(q.id,0,0,PR,CAT.PED,CAT.PLAYER|CAT.CAR|CAT.PED,{density:65/(Math.PI*PR*PR)});PEDS.push(q)}
+  const q={at,x:PN[at][0],y:PN[at][1],sp:1.15+prng()*.5,off:(prng()-.5)*1.8,sit:0,on:false,a:0,col:['#3b5b8a','#8a3b3b','#3f7d5a','#6b6f78','#a0763a','#5a3f8a','#2f3138','#b8a070'][i%8]} as Ped;
+  pedGoal(q);PEDS.push(q)}
 export function updatePeds(dt:number){
   for(const q of PEDS){
-    let tx=q.x,ty=q.y,sp=0;                                   // where they are heading, and how fast
-    if(q.sit>0){q.sit-=dt;
-      if(q.seat){tx=q.seat.x;ty=q.seat.y;sp=.6}
-      if(q.sit<=0){if(q.seat){q.seat.taken=false;q.seat=null}pedGoal(q)}}
-    else if(q.path.length>1){const n=PN[q.path[1]],a=PN[q.at];const edge=PADJ[q.at].find(e=>e.to===q.path[1])!;
-      const dx=n[0]-a[0],dy=n[1]-a[1],L=Math.hypot(dx,dy)||1,o=edge.x===undefined?q.off:q.off*.6;   // keep to one side of the path
-      q.wait=false;
-      if(edge.x!==undefined&&!q.on){if(!mayCross(edge.x,L))q.wait=true;else q.on=true}
-      if(!q.wait){tx=n[0]-dy/L*o;ty=n[1]+dx/L*o;sp=q.sp*(q.on?1.25:1);
-        if(Math.hypot(tx-q.x,ty-q.y)<.35){q.at=q.path[1];q.path.shift();q.on=false}}}
-    else if(q.seat){tx=q.seat.x;ty=q.seat.y;sp=q.sp;if(Math.hypot(tx-q.x,ty-q.y)<.3)q.sit=8+prng()*18}
-    else q.sit=2+prng()*5;                                   // reached a way out: stand there a while, then set off again
-    const dx=tx-q.x,dy=ty-q.y,d=Math.hypot(dx,dy),v=Math.min(sp,d*2);
-    let vx=d>1e-6?dx/d*v:0,vy=d>1e-6?dy/d*v:0;
-    if(P.z===0){const rr=P.car?3:.9,ex=q.x-P.x,ey=q.y-P.y,e=Math.hypot(ex,ey);if(e<rr&&e>1e-6){vx+=ex/e*1.6*(1-e/rr);vy+=ey/e*1.6*(1-e/rr)}}   // step round the player (or get out of the way of their car)
-    drive(q,vx,vy,.35,4,dt);
-    if(Math.hypot(q.vx,q.vy)>.3)q.hd=Math.atan2(q.vy,q.vx);
+    if(q.sit>0){q.sit-=dt;if(q.sit<=0){q.seat!.taken=false;q.seat=null;pedGoal(q)}continue}
+    let tx:number,ty:number;
+    if(q.path.length>1){const n=PN[q.path[1]],a=PN[q.at];const edge=PADJ[q.at].find(e=>e.to===q.path[1])!;
+      const dx=n[0]-a[0],dy=n[1]-a[1],L=Math.hypot(dx,dy)||1,o=edge.x===undefined?q.off:q.off*.6;tx=n[0]-dy/L*o;ty=n[1]+dx/L*o;   // keep to one side of the path
+      if(edge.x!==undefined&&!q.on){if(!mayCross(edge.x,L)){q.wait=true;continue}q.on=true}}
+    else if(q.seat){tx=q.seat.x;ty=q.seat.y}
+    else{ // reached a way out: someone new arrives somewhere else
+      q.at=PEXITS[Math.floor(prng()*PEXITS.length)];q.x=PN[q.at][0];q.y=PN[q.at][1];pedGoal(q);continue}
+    q.wait=false;
+    const dx=tx-q.x,dy=ty-q.y,d=Math.hypot(dx,dy),st=q.sp*(q.on?1.25:1)*dt;
+    if(d<=st+.05){q.x=tx;q.y=ty;
+      if(q.path.length>1){q.at=q.path[1];q.path.shift();q.on=false}else{q.sit=8+prng()*18}}
+    else{q.x+=dx/d*st;q.y+=dy/d*st;q.a=Math.atan2(dy,dx)}
+    if(P.z===0){const rr=P.car?1.9:.55,ex=q.x-P.x,ey=q.y-P.y,e=Math.hypot(ex,ey);if(e<rr&&e>1e-6){q.x+=ex/e*(rr-e);q.y+=ey/e*(rr-e)}}   // step round the player (or get out of the way of their car)
   }
 }
