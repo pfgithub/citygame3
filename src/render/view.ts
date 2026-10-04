@@ -21,6 +21,7 @@ import { type Building, BUILDINGS } from '../world/buildings';
 import { type Lift, LIFTS, STAIRS } from '../world/floors';
 import { DOCK, EDGEY, GATES, STATIONS, TDOORS, TDW, TRAINS, TW, dockedDoor, sideOpen } from '../world/subway';
 import { MYDOOR, MYFLAT, MYRECT } from '../world/tower';
+import { tiltEye } from '../tilt';
 
 // ---- what to show
 // A view is {k, b}: storey k of building b cut open (b=null: nothing cut open,
@@ -100,8 +101,12 @@ export function render(){
   camera.near=1;
   // camera: straight down, high enough that `view` metres span the short side of the screen
   const hgt=S.view/2/Math.tan(HALF_FOV),ty=Y(P.z);
-  camera.aspect=S.w/S.h;camera.fov=2*Math.atan(Math.tan(HALF_FOV)*S.h/Math.min(S.w,S.h))*180/Math.PI;
-  camera.far=hgt+90;camera.position.set(CAM.x,ty+hgt,CAM.y);camera.up.set(0,0,-1);camera.lookAt(CAM.x,ty,CAM.y);camera.updateProjectionMatrix();
+  // The floor the pointer is on is the screen's glass: the camera stays square to it, at the eye
+  // (straight above unless the phone is tilted, see tilt.ts), with a frustum through the screen's edges.
+  const m=Math.min(S.w,S.h),sw=S.view*S.w/m,sh=S.view*S.h/m,e=tiltEye(),ex=e.x*hgt,ey=e.y*hgt,ez=e.z*hgt,n=camera.near/ez;
+  camera.far=hgt+90;camera.position.set(CAM.x+ex,ty+ez,CAM.y-ey);camera.up.set(0,0,-1);camera.lookAt(CAM.x+ex,ty,CAM.y-ey);camera.updateMatrixWorld();
+  camera.projectionMatrix.makePerspective((-sw/2-ex)*n,(sw/2-ex)*n,(sh/2-ey)*n,(-sh/2-ey)*n,camera.near,camera.far);
+  camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
   const[A,B,f]=views();
   renderer.setRenderTarget(null);
   if(!B||f<.004){applyView(A);renderer.render(scene,camera)}
