@@ -6,9 +6,11 @@ Top-down 3D city game in TypeScript and three.js, bundled with Vite.
 - Pushes to `main` deploy to GitHub Pages (pfg.pw/citygame3/) via `.github/workflows/deploy.yml`.
 - The simulation is 2D (metres, plus a float floor level `z`); the 3D scene is generated from the same data.
 - Physics is Box2D v3 (`box2d3-wasm`, the single-threaded build, wrapped in `physics.ts`). Everything that moves
-  is a dynamic body with continuous collision (bullets), moved only by finite forces: never set a body's position
-  or velocity, push it (`drive`, `steer`, `kick`, `force`). Walls are shapes on one static body; floor levels are
-  collision category bits.
+  is a dynamic body, swept against walls (continuous collision; the small fast ones are also bullets, swept against
+  other bodies), moved only by finite forces: never set a body's position or velocity, push it (`drive`, `steer`,
+  `kick`, `force`). Walls are shapes on one static body; floor levels are collision category bits. The player is a
+  light 10 cm disc whose wanted velocity is first clipped by `sweep` (Box2D's mover queries), so it never pushes
+  into anything.
 - The 2D canvas painters (`drawOutdoor`, `drawOfficeFloor`, ...) only paint textures for the 3D floors.
 - Commit to git after every change, and push directly to `main` (no pull request needed).
 

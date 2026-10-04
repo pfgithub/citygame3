@@ -35,7 +35,7 @@ const ROPE=50;                       // metres of lasso
 // The creatures keep to the sand.
 {const f=FIELD;for(const[x,y,w,h]of[[f.x0-5,f.y0-5,f.x1-f.x0+10,5],[f.x0-5,f.y1,f.x1-f.x0+10,5],[f.x0-5,f.y0,5,f.y1-f.y0],[f.x1,f.y0,5,f.y1-f.y0]])wall(x,y,w,h,CAT.CRWALL,CAT.CREATURE)}
 // A body that goes through everything (thrown and flung things that find their own targets).
-function flier(x:number,y:number,r:number,kg:number,mask=0,damp=0){const o=track({x,y,px:x,py:y} as Flier,mkBody('dynamic',x,y,0,{fixedRot:true,damp}));
+function flier(x:number,y:number,r:number,kg:number,mask=0,damp=0){const o=track({x,y,px:x,py:y} as Flier,mkBody('dynamic',x,y,0,{fixedRot:true,damp,bullet:true}));
   addCircle(o.id,0,0,r,CAT.PROJ,mask,{density:kg/(Math.PI*r*r)});return o}
 function spawn(c:Creature){
   const k=crng();

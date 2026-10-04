@@ -3,7 +3,8 @@ import type { b2BodyId, b2JointId, b2ShapeId } from 'box2d-compat';
 
 // Box2D v3 (compiled to wasm). Everything that moves is a body in this one world: it is pushed
 // about by finite forces and Box2D integrates it, with continuous collision on (every dynamic
-// body is a bullet), so nothing is ever placed or teleported. The world is top-down: no gravity.
+// body is swept against the walls; the fast ones, bullets, against other moving bodies too), so nothing is
+// ever placed or teleported. The world is top-down: no gravity.
 export const B=await Box2DFactory();
 export type BodyId=b2BodyId;export type ShapeId=b2ShapeId;export type JointId=b2JointId;
 const wd=B.b2DefaultWorldDef();wd.gravity=new B.b2Vec2(0,0);wd.enableContinuous=true;wd.enableSleep=false;wd.maximumLinearSpeed=1000;
@@ -25,7 +26,8 @@ export function mkBody(kind:'static'|'dynamic',x:number,y:number,a=0,o:BodyOpts=
   const bd=B.b2DefaultBodyDef();
   bd.type=kind==='static'?B.b2BodyType.b2_staticBody:B.b2BodyType.b2_dynamicBody;
   bd.position=vec(x,y);const rot=B.b2MakeRot(a);bd.rotation=rot;rot.delete();
-  if(kind==='dynamic')bd.isBullet=o.bullet!==false;              // continuous collision against other moving bodies too
+  if(kind==='dynamic')bd.isBullet=!!o.bullet;                     // continuous collision against other moving bodies too
+  // (Box2D does not sweep bullets against each other, so only the fast, small things are bullets)
   if(o.fixedRot){const ml=bd.motionLocks;ml.angularZ=true;bd.motionLocks=ml}
   if(o.vx||o.vy)bd.linearVelocity=vec(o.vx??0,o.vy??0);
   if(o.damp)bd.linearDamping=o.damp;if(o.adamp)bd.angularDamping=o.adamp;
@@ -100,6 +102,23 @@ export function step(dt:number){
     force(k.id,k.dvx*s*m/dt,k.dvy*s*m/dt);k.dvx*=1-s;k.dvy*=1-s;if(s>=1)KICKS.splice(i,1)}
   B.b2World_Step(W,dt,4);
   for(const o of TRACKED)read(o);
+}
+// Limit a velocity so that a disc of radius r at (x, y) moving with it for dt will only just
+// touch what it would otherwise run into: slide along whatever it is already against, then stop
+// short of the first thing in the way (Box2D's character mover queries, exact sweeps). Only the
+// velocity aimed for is limited; the body still gets there by force.
+const CAP=new B.b2Capsule(),QF=B.b2DefaultQueryFilter(),V2=new B.b2Vec2(0,0);
+export function sweep(x:number,y:number,r:number,vx:number,vy:number,dt:number,cat:number,mask:number){
+  QF.categoryBits=cat;QF.maskBits=mask;
+  const c=vec(x,y);CAP.center1=c;CAP.center2=c;CAP.radius=r+.01;
+  const ns:number[]=[];
+  B.b2World_CollideMover(W,CAP,QF,(_s:unknown,pr:{plane:{normal:{x:number,y:number}}})=>{ns.push(pr.plane.normal.x,pr.plane.normal.y);return true});
+  for(let pass=0;pass<3;pass++)for(let i=0;i<ns.length;i+=2){const d=vx*ns[i]+vy*ns[i+1];if(d<0){vx-=ns[i]*d;vy-=ns[i+1]*d}}
+  const L=Math.hypot(vx,vy)*dt;if(L<1e-6)return{x:vx,y:vy};
+  CAP.radius=r;V2.x=vx*dt;V2.y=vy*dt;
+  const f=B.b2World_CastMover(W,CAP,V2,QF);
+  if(f<1){const k=Math.max(0,f*L-.002)/L;vx*=k;vy*=k}
+  return{x:vx,y:vy};
 }
 // One static body holds all the fixed walls of the city.
 export const GROUND=mkBody('static',0,0);

@@ -1,21 +1,24 @@
-import { R } from '../constants';
 import { A } from './arena';
 import { BOAT } from './boat';
 import { seatXY } from './seats';
 import { P, S } from '../state';
-import { CAT, addCircle, drive, force, lv, mass, mkBody, setFilter, track } from '../physics';
+import { CAT, addCircle, drive, force, lv, mass, mkBody, setFilter, sweep, track } from '../physics';
 import { surfaceAt } from '../world/surfaces';
 
-// The player's body: a 70 kg disc that only ever moves by the force their legs can put down.
-export const PB=track({x:P.x,y:P.y},mkBody('dynamic',P.x,P.y,0,{fixedRot:true}));
-const SHAPE=addCircle(PB.id,0,0,R,CAT.PLAYER,lv(0),{density:70/(Math.PI*R*R)});
+// The player's body: the tip of the mouse pointer, a light (2 kg), small (10 cm across) disc that
+// only ever moves by force. Too light to shove a car about; bumping into things, it is the one
+// that gives.
+const PR=.05;
+export const PB=track({x:P.x,y:P.y},mkBody('dynamic',P.x,P.y,0,{fixedRot:true,bullet:true}));
+const SHAPE=addCircle(PB.id,0,0,PR,CAT.PLAYER,lv(0),{density:2/(Math.PI*PR*PR)});
+let MASK=lv(0);
 // Collides with the walls of the level it is on (and on the street, with traffic, people and
 // creatures; on a platform, with the trains). Aboard the boat only its rails count. Carried
 // (seated, driving, stepping clear of a seat or a car) it collides with nothing.
 export const carried=()=>!!(P.car||P.sit||P.ghost);
 export function playerFilter(){
   const k=Math.floor(P.z+.5);
-  setFilter(SHAPE,CAT.PLAYER,carried()?0:P.boat?CAT.RAIL:lv(k)|(k===0?CAT.CAR|CAT.PED|CAT.CREATURE:0)|(k===-2?CAT.TRAIN:0));
+  MASK=carried()?0:P.boat?CAT.RAIL:lv(k)|(k===0?CAT.CAR|CAT.PED|CAT.CREATURE:0)|(k===-2?CAT.TRAIN:0);setFilter(SHAPE,CAT.PLAYER,MASK);
 }
 // The velocity of whatever the player stands on: a train, or the deck of the boat.
 function frameVel(){
@@ -69,6 +72,8 @@ export function movePlayer(dt:number,ux:number,uy:number,sx:number,sy:number,wan
     let ax=.9*u.x-.45*(PB.vx-f.x),ay=.9*u.y-.45*(PB.vy-f.y);const a=Math.hypot(ax,ay);if(a>40){ax*=40/a;ay*=40/a}
     force(PB.id,ax*m,ay*m);P.tx=PB.x;P.ty=PB.y;return}
   const cap=sf==='water'?4:VMAX,sp=Math.hypot(vx,vy);if(sp>cap){vx*=cap/sp;vy*=cap/sp}
+  // never aim into anything: slide along what is in the way, and arrive just touching it
+  const sw=sweep(PB.x,PB.y,PR,vx,vy,dt,CAT.PLAYER,MASK);vx=sw.x;vy=sw.y;
   drive(PB,f.x+vx,f.y+vy,want&&sf!=='water'?1/30:dt,amax,dt);   // (chasing the pointer, reach the speed aimed for within the step)
 }
 // After the physics step.

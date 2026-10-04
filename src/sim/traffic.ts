@@ -1,3 +1,4 @@
+import { DCARS, carEnds } from './driving';
 import { PEDS } from './peds';
 import { P, S } from '../state';
 import { clamp, mulberry32 } from '../util';
@@ -62,6 +63,7 @@ export function updateTraffic(dt:number){
       if(lat<w&&along>-1&&along<40)free=Math.min(free,along-1.6)};
     for(const u of users)ahead(u,1.7);
     for(const o of CARS)if(o.lp!==lp)for(const e of carDiscs(o))ahead(e,1.9);   // (cross traffic still in the junction)
+    for(const o of DCARS)for(const e of carEnds(o))ahead(e,1.9);              // (and the cars people drive)
     let want=Math.min(11,Math.sqrt(2*5*Math.max(0,free)));            // the speed it could still stop from
     for(const[a,b]of lp.arcs){const d=mod(a-front,lp.L),on=mod(c.s-a,lp.L)<b-a;want=Math.min(want,on?3:Math.sqrt(9+2*4*d))}   // slow for the turning places
     // steer at a point a little way up the road; tyres hold it to the road, engine and brakes set the pace
