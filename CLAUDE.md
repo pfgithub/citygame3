@@ -6,7 +6,7 @@ Top-down 3D city game in TypeScript and three.js, bundled with Vite.
 - Pushes to `main` deploy to GitHub Pages (pfg.pw/citygame3/) via `.github/workflows/deploy.yml`.
 - The simulation is 2D (metres, plus a float floor level `z`); the 3D scene is generated from the same data.
 - The 2D canvas painters (`drawOutdoor`, `drawOfficeFloor`, ...) only paint textures for the 3D floors.
-- Commit to git after every change.
+- Commit to git after every change, and push directly to `main` (no pull request needed).
 
 ## Layout (`src/`)
 
