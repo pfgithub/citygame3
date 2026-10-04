@@ -34,7 +34,7 @@ function holdTarget(){
   if(Math.hypot(x-PB.x,y-PB.y)<.06&&Math.hypot(PB.vx-vx,PB.vy-vy)<.5){P.ghost=null;return null}
   return{x,y,vx,vy,sp:g.sp};
 }
-const VMAX=25,LEASH=6,OMEGA=12;
+const VMAX=25,LEASH=6,OMEGA=12,BRAKE=.85;
 let stuck=0;                                  // how long the body has made no headway towards the pointer
 // Move the player for one tick. Top-down, (ux, uy) is how far the mouse moved the pointer and
 // (sx, sy) how far a blow shoves it; in first person (or a scripted test) `want` is the velocity
@@ -43,14 +43,23 @@ export function movePlayer(dt:number,ux:number,uy:number,sx:number,sy:number,wan
   const h=holdTarget();
   if(h){let dx=h.x-PB.x,dy=h.y-PB.y;const d=Math.hypot(dx,dy),k=Math.min(OMEGA*1.5,h.sp/(d||1));dx*=k;dy*=k;
     drive(PB,h.vx+dx,h.vy+dy,1/30,600,dt);P.tx=PB.x;P.ty=PB.y;return}
-  const f=frameVel(),sf=P.boat||P.lift?null:surfaceAt(PB.x,PB.y,P.z),amax=A.ball?70:120;
+  const f=frameVel(),sf=P.boat||P.lift?null:surfaceAt(PB.x,PB.y,P.z),amax=sf==='water'?12:A.ball?70:250;
   let vx:number,vy:number;                              // the velocity the legs aim for, relative to the ground underfoot
   if(want){vx=want.x;vy=want.y;P.tx=PB.x;P.ty=PB.y}
   else{ // the pointer leads; the body chases it, and the pointer never gets far ahead
     P.tx+=ux+sx+f.x*dt;P.ty+=uy+sy+f.y*dt;
     let ex=P.tx-PB.x,ey=P.ty-PB.y;const e=Math.hypot(ex,ey),lim=sf==='water'?1:LEASH;
     if(e>lim){P.tx=PB.x+ex/e*lim;P.ty=PB.y+ey/e*lim;ex*=lim/e;ey*=lim/e}
-    vx=(ux+sx)/dt+ex*OMEGA;vy=(uy+sy)/dt+ey*OMEGA;
+    // Head for the pointer as fast as it is still possible to stop exactly on it, braking with
+    // only part of the force there is (so there is always some in hand). Box2D raises the velocity
+    // over its 4 substeps, so a step to end velocity v travels dt*(.375 v0 + .625 v); the speed
+    // aimed for is the one that, after this step, leaves room to stop: v = sqrt(2 a d_after).
+    // Close in, cover most of what is left each step. The body never goes past the pointer and back.
+    const d=Math.min(e,lim),rx=PB.vx-f.x,ry=PB.vy-f.y,ux_=d>1e-6?ex/d:0,uy_=d>1e-6?ey/d:0;
+    const c=2*BRAKE*amax,A_=d-.375*dt*(rx*ux_+ry*uy_),q=.625*c*dt;
+    const sp=A_>0?Math.min(VMAX,(-q+Math.sqrt(q*q+4*c*A_))/2):0;
+    const lx=(.8*ex/dt-.375*rx)/.625,ly=(.8*ey/dt-.375*ry)/.625;
+    if(Math.hypot(lx,ly)<sp||A_<=0){vx=lx;vy=ly}else{vx=ux_*sp;vy=uy_*sp}
     const el=Math.hypot(ex,ey),toward=el>1e-6?((PB.vx-f.x)*ex+(PB.vy-f.y)*ey)/el:0;
     stuck=el>.2&&toward<.5?stuck+dt:0;
     if(stuck>.15){const k=Math.min(1,dt*8);P.tx-=ex*k;P.ty-=ey*k}       // pressed against something: let the pointer come back to it
@@ -60,7 +69,7 @@ export function movePlayer(dt:number,ux:number,uy:number,sx:number,sy:number,wan
     let ax=.9*u.x-.45*(PB.vx-f.x),ay=.9*u.y-.45*(PB.vy-f.y);const a=Math.hypot(ax,ay);if(a>40){ax*=40/a;ay*=40/a}
     force(PB.id,ax*m,ay*m);P.tx=PB.x;P.ty=PB.y;return}
   const cap=sf==='water'?4:VMAX,sp=Math.hypot(vx,vy);if(sp>cap){vx*=cap/sp;vy*=cap/sp}
-  drive(PB,f.x+vx,f.y+vy,sf==='water'?.25:1/30,sf==='water'?12:amax,dt);
+  drive(PB,f.x+vx,f.y+vy,want&&sf!=='water'?1/30:dt,amax,dt);   // (chasing the pointer, reach the speed aimed for within the step)
 }
 // After the physics step.
 export function afterStep(){P.x=PB.x;P.y=PB.y;P.vx=PB.vx;P.vy=PB.vy;if(S.fp&&!P.ghost){P.tx=PB.x;P.ty=PB.y}}
